@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: cogency-postgres
+    environment:
+      POSTGRES_USER: cogency
+      POSTGRES_PASSWORD: cogency_dev
+      POSTGRES_DB: cogency
+    ports:
+      - "5432:5432"
+    volumes:
+      - cogency_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cogency -d cogency"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    container_name: cogency-temporal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: cogency
+      POSTGRES_PWD: cogency_dev
+      POSTGRES_SEEDS: postgres
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    ports:
+      - "7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    container_name: cogency-temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8233:8080"
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: cogency-langfuse
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cogency:cogency_dev@postgres:5432/langfuse
+      NEXTAUTH_SECRET: dev-secret-change-me
+      SALT: dev-salt-change-me
+      ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      NEXTAUTH_URL: http://localhost:3001
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_INIT_ORG_ID: cogency
+      LANGFUSE_INIT_ORG_NAME: Cogency
+      LANGFUSE_INIT_PROJECT_ID: cogency-dev
+      LANGFUSE_INIT_PROJECT_NAME: cogency-dev
+    ports:
+      - "3001:3000"
+
+volumes:
+  cogency_pgdata:

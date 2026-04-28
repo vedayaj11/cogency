@@ -1,0 +1,24 @@
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = [
+    "E", "F", "W",   # pyflakes, pycodestyle
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "ASYNC",         # async best practices
+    "S",             # bandit
+    "RUF",
+]
+ignore = [
+    "E501",  # line length handled by formatter
+    "S101",  # asserts ok in tests
+]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["S"]
+"**/migrations/**" = ["S", "F401"]
+
+[format]
+quote-style = "double"
