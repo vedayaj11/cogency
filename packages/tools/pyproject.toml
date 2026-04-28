@@ -5,6 +5,8 @@ description = "Tool registry: Salesforce mirror queries, RAG, email, refund APIs
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.9",
+    "sqlalchemy>=2.0.35",
+    "cogency-db",
     "cogency-schemas",
     "cogency-salesforce",
 ]

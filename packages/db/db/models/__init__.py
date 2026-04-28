@@ -1,4 +1,11 @@
-from db.models.aop import AgentInboxItem, AOPRun, AOPStep, AOPVersion, AuditEvent
+from db.models.aop import (
+    AOP,
+    AgentInboxItem,
+    AOPRun,
+    AOPStep,
+    AOPVersion,
+    AuditEvent,
+)
 from db.models.sf import SfAccount, SfCase, SfContact, SfSyncState, SfUser
 from db.models.tenant import Tenant
 
@@ -9,6 +16,7 @@ __all__ = [
     "SfContact",
     "SfAccount",
     "SfUser",
+    "AOP",
     "AOPVersion",
     "AOPRun",
     "AOPStep",

@@ -1,7 +1,4 @@
-"""ORM models for cogency.* AOP / inbox / audit tables.
-
-Minimal coverage — extend as features come online.
-"""
+"""ORM models for cogency.* AOP / inbox / audit tables."""
 
 from __future__ import annotations
 
@@ -24,6 +21,22 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.session import Base
+
+
+class AOP(Base):
+    __tablename__ = "aops"
+    __table_args__ = {"schema": "cogency"}
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("cogency.tenants.id", ondelete="CASCADE")
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    current_version_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
 
 
 class AOPVersion(Base):

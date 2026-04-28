@@ -1,0 +1,190 @@
+"""AOP authoring + run endpoints.
+
+PRD §10.2:
+    POST   /v1/aops                          Create or upsert AOP from source
+    POST   /v1/aops/{name}/versions          Add a new version
+    POST   /v1/aops/{name}/versions/{v}/deploy
+    POST   /v1/aop_runs                      Manual run trigger
+    GET    /v1/aop_runs/{id}                 Run status + steps
+"""
+
+from __future__ import annotations
+
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.client import Client as TemporalClient
+
+from aop import compile_aop, parse_aop_source
+from aop.compiler import CompileError
+from db import AOPRepository, AOPRunRepository
+from db.models.aop import AOPVersion
+from schemas import (
+    AOPCreateRequest,
+    AOPCreateResponse,
+    AOPRunSummary,
+    RunAOPInput,
+)
+from tools import build_default_registry
+
+from app.config import Settings
+from app.deps import db_session, settings_dep, temporal_client
+
+router = APIRouter()
+
+
+@router.post("/v1/aops", response_model=AOPCreateResponse)
+async def upsert_aop(
+    payload: AOPCreateRequest,
+    settings: Settings = Depends(settings_dep),
+    session: AsyncSession = Depends(db_session),
+) -> AOPCreateResponse:
+    try:
+        aop = parse_aop_source(payload.source_md)
+    except Exception as e:
+        raise HTTPException(400, f"AOP source parse error: {e}") from e
+
+    if aop.name != payload.name:
+        raise HTTPException(
+            400,
+            f"AOP name mismatch: payload.name='{payload.name}' but source declares '{aop.name}'",
+        )
+
+    registry = build_default_registry()
+    granted_scopes = sorted({s for t in registry.tools.values() for s in t.required_scopes})
+
+    compile_errors: list[str] = []
+    try:
+        compile_aop(aop, available_tools=registry.names(), granted_scopes=granted_scopes)
+    except CompileError as e:
+        compile_errors = e.errors
+
+    repo = AOPRepository(session)
+    aop_row = await repo.upsert_aop(
+        tenant_id=settings.cogency_dev_tenant_id,
+        name=aop.name,
+        description=aop.description,
+    )
+    version = await repo.add_version(
+        aop_id=aop_row.id,
+        source_md=payload.source_md,
+        compiled_plan=aop.model_dump(),
+        status="draft" if compile_errors else ("deployed" if payload.deploy else "ready"),
+    )
+    if payload.deploy and not compile_errors:
+        await repo.set_current_version(aop_row.id, version.id)
+
+    return AOPCreateResponse(
+        aop_id=aop_row.id,
+        version_id=version.id,
+        version_number=version.version_number,
+        status=version.status,
+        compile_errors=compile_errors,
+    )
+
+
+class RunAOPRequest(BaseModel):
+    aop_name: str
+    case_id: str
+    version_number: int | None = None  # default: current_version_id
+    granted_scopes: list[str] | None = None
+
+
+class RunAOPStarted(BaseModel):
+    workflow_id: str
+    run_id: str
+    aop_version_id: UUID
+
+
+@router.post("/v1/aop_runs", response_model=RunAOPStarted, status_code=202)
+async def trigger_run(
+    payload: RunAOPRequest,
+    settings: Settings = Depends(settings_dep),
+    session: AsyncSession = Depends(db_session),
+    temporal: TemporalClient | None = Depends(temporal_client),
+) -> RunAOPStarted:
+    if temporal is None:
+        raise HTTPException(503, "temporal unavailable")
+
+    repo = AOPRepository(session)
+    aop = await repo.get_by_name(settings.cogency_dev_tenant_id, payload.aop_name)
+    if aop is None:
+        raise HTTPException(404, f"AOP '{payload.aop_name}' not found")
+
+    if payload.version_number is not None:
+        from sqlalchemy import select
+
+        stmt = select(AOPVersion).where(
+            AOPVersion.aop_id == aop.id,
+            AOPVersion.version_number == payload.version_number,
+        )
+        version = (await session.execute(stmt)).scalar_one_or_none()
+    elif aop.current_version_id is not None:
+        version = await session.get(AOPVersion, aop.current_version_id)
+    else:
+        version = await repo.latest_version(aop.id)
+
+    if version is None:
+        raise HTTPException(400, "AOP has no usable version; deploy a version first")
+
+    workflow_id = f"aop-run-{aop.name}-{payload.case_id}-{uuid4()}"
+    handle = await temporal.start_workflow(
+        "RunAOPWorkflow",
+        RunAOPInput(
+            tenant_id=settings.cogency_dev_tenant_id,
+            aop_version_id=version.id,
+            case_id=payload.case_id,
+            granted_scopes=payload.granted_scopes
+            or [
+                "case.read",
+                "case.update",
+                "contact.read",
+                "refund.propose",
+            ],
+        ),
+        id=workflow_id,
+        task_queue=settings.temporal_task_queue,
+    )
+    return RunAOPStarted(
+        workflow_id=workflow_id,
+        run_id=handle.first_execution_run_id or "",
+        aop_version_id=version.id,
+    )
+
+
+@router.get("/v1/aop_runs/{run_id}", response_model=AOPRunSummary)
+async def get_run(
+    run_id: UUID,
+    session: AsyncSession = Depends(db_session),
+) -> AOPRunSummary:
+    repo = AOPRunRepository(session)
+    run = await repo.get(run_id)
+    if run is None:
+        raise HTTPException(404, "aop_run not found")
+    steps = await repo.steps(run_id)
+    return AOPRunSummary(
+        id=run.id,
+        aop_version_id=run.aop_version_id,
+        case_id=run.case_id,
+        status=run.status,
+        started_at=run.started_at,
+        ended_at=run.ended_at,
+        cost_usd=float(run.cost_usd or 0),
+        token_in=run.token_in or 0,
+        token_out=run.token_out or 0,
+        trace_id=run.trace_id,
+        steps=[
+            {
+                "step_index": s.step_index,
+                "tool_name": s.tool_name,
+                "input": s.input,
+                "output": s.output,
+                "status": s.status,
+                "latency_ms": s.latency_ms,
+                "error": s.error,
+            }
+            for s in steps
+        ],
+    )

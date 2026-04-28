@@ -1,3 +1,10 @@
+from schemas.aop import (
+    AOPCreateRequest,
+    AOPCreateResponse,
+    AOPRunSummary,
+    RunAOPInput,
+    RunAOPResult,
+)
 from schemas.case import CaseContext, IntakeExtraction
 from schemas.handoff import Citation, HandoffPayload
 from schemas.run import AOPRunOutcome, AOPStepResult
@@ -12,4 +19,9 @@ __all__ = [
     "AOPStepResult",
     "BackfillCasesInput",
     "BackfillCasesResult",
+    "AOPCreateRequest",
+    "AOPCreateResponse",
+    "AOPRunSummary",
+    "RunAOPInput",
+    "RunAOPResult",
 ]

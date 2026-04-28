@@ -23,6 +23,7 @@ dependencies = [
     "cogency-schemas",
     "cogency-aop",
     "cogency-agents",
+    "cogency-tools",
     "cogency-guardrails",
 ]
 

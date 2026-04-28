@@ -6,7 +6,7 @@ See [cogency_product_requirement_document.md](./cogency_product_requirement_docu
 
 ## Status
 
-Pre-development. Milestone 1 (scaffold) and Milestone 2 (Salesforce sync foundation) are in. The PRD targets a 12-week MVP with seven capabilities:
+Pre-development. Milestone 1 (scaffold), Milestone 2 (Salesforce sync), and Milestone 3 (AOP runtime) are in. The PRD targets a 12-week MVP with seven capabilities:
 
 1. Smart Case Intake & Structured Creation
 2. AOP Engine (Agent Operating Procedures) — the spine
@@ -39,10 +39,10 @@ cogency/
 ├── packages/
 │   ├── db/          SQLAlchemy async session, ORM models, repositories
 │   ├── salesforce/  JWT auth, Bulk 2.0, REST client, Pub/Sub gRPC, writer outbox
-│   ├── schemas/     Pydantic contracts (CaseContext, BackfillCasesInput, ...)
+│   ├── schemas/     Pydantic contracts (CaseContext, BackfillCasesInput, RunAOPInput, ...)
 │   ├── aop/         AOP DSL parser, compiler
-│   ├── agents/      LangGraph: meta-agent, skills, copilot
-│   ├── tools/       Tool registry
+│   ├── agents/      OpenAI LLM client, AOPExecutor, guardrail evaluator
+│   ├── tools/       Tool registry + builtin tools (lookup_case, propose_refund, ...)
 │   ├── prompts/     Versioned prompt artifacts
 │   ├── guardrails/  PII redaction, prompt injection, citation enforcement
 │   └── evals/       Golden datasets + LLM-judge rubrics
@@ -56,6 +56,9 @@ cogency/
     ├── dev.sh                  one-shot bootstrap
     ├── gen_pubsub_proto.sh     fetch SF Pub/Sub proto + emit gRPC stubs
     └── backfill_cases.py       trigger a Bulk 2.0 backfill via Temporal
+
+aops/
+└── refund_under_500.md         reference AOP demonstrating the DSL
 ```
 
 ## Getting started
@@ -78,6 +81,27 @@ make web                 # http://localhost:3000
 Other URLs:
 - Temporal UI → http://localhost:8233
 - Langfuse → http://localhost:3001
+
+## Running an AOP
+
+```bash
+# 1. Make sure cases are in the local mirror (run a backfill — see below).
+# 2. Worker must be running (registers RunAOPWorkflow).
+
+# 3. Author + deploy the reference refund AOP:
+curl -X POST http://localhost:8000/v1/aops \
+  -H 'content-type: application/json' \
+  -d "$(jq -Rs '{name: "refund_under_500", source_md: ., deploy: true}' < aops/refund_under_500.md)"
+
+# 4. Trigger a run against a real case_id from the mirror:
+curl -X POST http://localhost:8000/v1/aop_runs \
+  -H 'content-type: application/json' \
+  -d '{"aop_name": "refund_under_500", "case_id": "5003t000XXXXXXXAAA"}'
+# → {"workflow_id": "...", "run_id": "...", "aop_version_id": "..."}
+
+# 5. Read the trace:
+curl http://localhost:8000/v1/aop_runs/<run_id>
+```
 
 ## Running a Salesforce backfill
 
@@ -114,21 +138,23 @@ curl http://localhost:8000/v1/integrations/salesforce/sync_status
 ## What's wired vs. what's a stub
 
 **Wired:**
-- FastAPI app with `/health`, `/v1/integrations/salesforce/{sync_status,connect,backfill}`
-- Temporal worker with `BackfillCasesWorkflow` + `backfill_cases` activity
-- `SalesforceClient`: JWT Bearer + Client Credentials auth, REST query/update/composite, Bulk 2.0 query lifecycle (submit, poll, stream results, delete), rate-limit gauge
+- FastAPI: `/health`, `/v1/integrations/salesforce/{sync_status,connect,backfill}`, `/v1/aops`, `/v1/aop_runs/{id}`, `/v1/aop_runs`
+- Temporal worker: `BackfillCasesWorkflow`, `RunAOPWorkflow`, `HealthWorkflow`
+- `SalesforceClient`: JWT + Client Credentials auth, REST query/update/composite, Bulk 2.0 query lifecycle, rate-limit gauge
 - `OutboxWriter` with optimistic concurrency (412 → conflict outcome)
-- Async SQLAlchemy session, ORM models for `sf.case/contact/account/user/sync_state`, `cogency.{tenants,aops,aop_versions,aop_runs,aop_steps,agent_inbox_items,audit_events}`
-- `CaseRepository.upsert_many` with system_modstamp guard (out-of-order events never clobber newer data)
-- Next.js 15 starter
-- Initial migration + dev tenant seed; pgvector extension installed
+- Async SQLAlchemy + ORM for `sf.*` and `cogency.*`; `CaseRepository.upsert_many` with system_modstamp guard
+- **AOP runtime**: parser, compiler (tool/scope validation), `AOPExecutor` with OpenAI tool-calling loop, runtime guardrail evaluator (`requires_approval_if`, `halt_on`, `max_cost_usd`), per-step trace capture, cost rollup
+- Built-in tools: `lookup_case`, `lookup_contact`, `verify_customer_identity`, `propose_refund`, `add_case_comment`, `update_case_status`
+- Reference AOP: `aops/refund_under_500.md`
+- Inbox auto-creation on `escalated_human` outcomes
+- Unit tests for executor + guardrails
 
 **Stubbed (next milestones):**
-- Pub/Sub gRPC consumer — schema documented; `scripts/gen_pubsub_proto.sh` fetches Salesforce's proto and emits stubs
+- Pub/Sub gRPC consumer (`scripts/gen_pubsub_proto.sh` to fetch + generate)
 - OAuth callback handler (code → token exchange + persist tenant credentials)
-- AOP runtime executor (parser + compiler are real)
-- Meta-agent LangGraph graph
-- Guardrails (Presidio + LLM Guard)
+- Meta-agent LangGraph graph (AOP selector)
+- RAG / knowledge layer (citation-grounded retrieval)
+- Guardrails (Presidio PII + LLM Guard prompt-injection)
 - Eval runner + LLM-judge
 - Workspace UI, Inbox UI, AOP authoring UI
 

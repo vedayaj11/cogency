@@ -1,0 +1,135 @@
+"""AOP run activity: builds context, runs the executor, persists the trace."""
+
+from __future__ import annotations
+
+from uuid import uuid4
+
+from sqlalchemy import select
+from temporalio import activity
+
+from agents import AOPExecutor, LLMClient
+from aop import AOP
+from db import (
+    AOPRun,
+    AOPRunRepository,
+    AOPVersion,
+    InboxRepository,
+    async_session,
+)
+from db.models.sf import SfCase
+from schemas import RunAOPInput, RunAOPResult
+from tools import ToolContext, build_default_registry
+
+from worker.config import get_settings
+from worker.sf import build_salesforce_client
+
+
+@activity.defn
+async def execute_aop_run(payload: RunAOPInput) -> RunAOPResult:
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY not configured")
+
+    llm = LLMClient(api_key=settings.openai_api_key, model=settings.openai_default_model)
+    registry = build_default_registry()
+    executor = AOPExecutor(llm=llm, registry=registry)
+
+    # Salesforce client only needed for write-back tools; stays None until used.
+    try:
+        sf_client = build_salesforce_client(settings)
+    except Exception as e:
+        activity.logger.warning("aop.sf_client_unavailable", extra={"error": str(e)})
+        sf_client = None
+
+    trace_id = str(uuid4())
+
+    async with async_session(settings.database_url) as session:
+        version = await session.get(AOPVersion, payload.aop_version_id)
+        if version is None:
+            raise RuntimeError(f"aop_version {payload.aop_version_id} not found")
+        aop = AOP.model_validate(version.compiled_plan)
+
+        case = (
+            await session.execute(
+                select(SfCase).where(
+                    SfCase.org_id == payload.tenant_id, SfCase.id == payload.case_id
+                )
+            )
+        ).scalar_one_or_none()
+        if case is None:
+            raise RuntimeError(f"case {payload.case_id} not in mirror; backfill first")
+
+        case_context = {
+            "case_id": case.id,
+            "case_number": case.case_number,
+            "subject": case.subject,
+            "description": case.description,
+            "status": case.status,
+            "priority": case.priority,
+            "contact_id": case.contact_id,
+            "account_id": case.account_id,
+            "custom_fields": case.custom_fields or {},
+        }
+
+        run_repo = AOPRunRepository(session)
+        run = await run_repo.create(
+            tenant_id=payload.tenant_id,
+            aop_version_id=payload.aop_version_id,
+            case_id=payload.case_id,
+            trace_id=trace_id,
+        )
+
+    # Run the executor outside the persistence session so each tool call gets
+    # a fresh transaction and we don't hold a connection during LLM calls.
+    async with async_session(settings.database_url) as exec_session:
+        ctx = ToolContext(
+            tenant_id=payload.tenant_id,
+            case_id=payload.case_id,
+            session=exec_session,
+            sf_client=sf_client,
+        )
+        outcome = await executor.run(
+            aop=aop,
+            case_context=case_context,
+            tool_context=ctx,
+            granted_scopes=payload.granted_scopes,
+            aop_version_id=str(payload.aop_version_id),
+            case_id=payload.case_id,
+            trace_id=trace_id,
+        )
+
+    # Persist final state.
+    async with async_session(settings.database_url) as session:
+        run_repo = AOPRunRepository(session)
+        await run_repo.finalize(
+            run_id=run.id,
+            status=outcome.status,
+            outcome=None,
+            cost_usd=outcome.cost_usd,
+            token_in=outcome.token_in,
+            token_out=outcome.token_out,
+            steps=[s.model_dump() for s in outcome.steps],
+        )
+        if outcome.status == "escalated_human":
+            inbox = InboxRepository(session)
+            await inbox.create(
+                tenant_id=payload.tenant_id,
+                case_id=payload.case_id,
+                escalation_reason="guardrail_required_approval",
+                recommended_action={
+                    "trace_id": trace_id,
+                    "last_step": (
+                        outcome.steps[-1].model_dump() if outcome.steps else None
+                    ),
+                },
+                confidence=None,
+            )
+
+    return RunAOPResult(
+        run_id=run.id,
+        status=outcome.status,
+        cost_usd=outcome.cost_usd,
+        token_in=outcome.token_in,
+        token_out=outcome.token_out,
+        step_count=len(outcome.steps),
+    )

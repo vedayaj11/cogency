@@ -5,6 +5,7 @@ Models are split by schema (`sf` mirror, `cogency` native). Migrations live in
 """
 
 from db.models import (
+    AOP,
     AgentInboxItem,
     AOPRun,
     AOPStep,
@@ -17,23 +18,33 @@ from db.models import (
     SfUser,
     Tenant,
 )
-from db.repositories import CaseRepository, SyncStateRepository
+from db.repositories import (
+    AOPRepository,
+    AOPRunRepository,
+    CaseRepository,
+    InboxRepository,
+    SyncStateRepository,
+)
 from db.session import Base, async_session, dispose_engine, get_engine, get_sessionmaker
 
 __all__ = [
-    "CaseRepository",
-    "SyncStateRepository",
     "Base",
     "async_session",
     "dispose_engine",
     "get_engine",
     "get_sessionmaker",
+    "CaseRepository",
+    "SyncStateRepository",
+    "AOPRepository",
+    "AOPRunRepository",
+    "InboxRepository",
     "SfCase",
     "SfContact",
     "SfAccount",
     "SfUser",
     "SfSyncState",
     "Tenant",
+    "AOP",
     "AOPVersion",
     "AOPRun",
     "AOPStep",
