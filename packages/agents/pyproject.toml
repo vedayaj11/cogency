@@ -5,8 +5,8 @@ description = "LangGraph graphs: meta_agent, skills, copilot"
 requires-python = ">=3.12"
 dependencies = [
     "langgraph>=0.2",
-    "langchain-anthropic>=0.2",
-    "anthropic>=0.40",
+    "langchain-openai>=0.2",
+    "openai>=1.50",
     "pydantic>=2.9",
     "cogency-schemas",
     "cogency-aop",

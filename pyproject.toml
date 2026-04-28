@@ -9,6 +9,7 @@ authors = [{ name = "Cogency", email = "eng@cogency.dev" }]
 members = [
     "apps/api",
     "apps/worker",
+    "packages/db",
     "packages/salesforce",
     "packages/schemas",
     "packages/aop",
@@ -20,6 +21,7 @@ members = [
 ]
 
 [tool.uv.sources]
+cogency-db = { workspace = true }
 cogency-salesforce = { workspace = true }
 cogency-schemas = { workspace = true }
 cogency-aop = { workspace = true }

@@ -4,9 +4,9 @@ import logging
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from worker.activities import ping
+from worker.activities import backfill_cases, ping
 from worker.config import get_settings
-from worker.workflows import HealthWorkflow
+from worker.workflows import BackfillCasesWorkflow, HealthWorkflow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("cogency.worker")
@@ -20,8 +20,8 @@ async def run() -> None:
     worker = Worker(
         client,
         task_queue=settings.temporal_task_queue,
-        workflows=[HealthWorkflow],
-        activities=[ping],
+        workflows=[HealthWorkflow, BackfillCasesWorkflow],
+        activities=[ping, backfill_cases],
     )
     log.info("worker ready on task queue %s", settings.temporal_task_queue)
     await worker.run()

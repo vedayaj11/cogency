@@ -1,38 +1,37 @@
-"""Bulk API 2.0 client.
+"""Bulk 2.0 result CSV parsing helpers.
 
-PRD §7.2: PK Chunking (chunkSize=100k) for backfill. Skeleton only — implement
-the full lifecycle (createJob, uploadJobData, closeJob, poll status, fetch
-results, deleteJob) as part of the sync workers milestone.
+The actual job lifecycle (submit, poll, fetch, delete) lives on
+SalesforceClient. This module decodes the streaming CSV chunks into typed
+dicts that downstream repositories can apply to the local mirror.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import csv
+import io
+from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
-from salesforce.auth import JWTBearerAuth
+
+def parse_csv_chunk(chunk: bytes, *, header_only_first: bool = True) -> Iterator[dict[str, Any]]:
+    """Parse one CSV chunk from Bulk 2.0 results.
+
+    Bulk 2.0 emits the header row in every chunk; the caller decides whether
+    to keep it (first chunk) or skip (subsequent chunks).
+    """
+    text = chunk.decode("utf-8")
+    reader = csv.DictReader(io.StringIO(text))
+    for row in reader:
+        yield {k: (v if v != "" else None) for k, v in row.items()}
 
 
-@dataclass
-class BulkClient:
-    auth: JWTBearerAuth
-
-    async def submit_query_job(
-        self,
-        sobject: str,
-        query: str,
-        *,
-        chunk_size: int = 100_000,
-    ) -> str:
-        """Create a Bulk 2.0 query job. Returns job_id."""
-        # TODO(salesforce-sync): implement POST /services/data/vXX.X/jobs/query
-        raise NotImplementedError
-
-    async def poll_job(self, job_id: str) -> dict:
-        # TODO(salesforce-sync)
-        raise NotImplementedError
-
-    async def fetch_results(self, job_id: str):
-        """Yield CSV result chunks for streaming apply to local mirror."""
-        # TODO(salesforce-sync)
-        raise NotImplementedError
-        yield  # pragma: no cover  # noqa: RUF100
+async def parse_csv_stream(
+    chunks: AsyncIterator[bytes],
+) -> AsyncIterator[dict[str, Any]]:
+    """Flatten a chunked CSV stream into a stream of row dicts."""
+    first = True
+    async for chunk in chunks:
+        # Each chunk is itself a complete CSV with header; DictReader handles dedup.
+        for row in parse_csv_chunk(chunk):
+            yield row
+        first = False  # noqa: F841 — kept for clarity if we switch to header-stripping later

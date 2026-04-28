@@ -3,15 +3,36 @@
 See PRD §7 for the architectural pattern.
 """
 
-from salesforce.auth import JWTBearerAuth, SalesforceCredentials
-from salesforce.bulk import BulkClient
+from salesforce.auth import (
+    AuthStrategy,
+    ClientCredentialsAuth,
+    JWTBearerAuth,
+    SalesforceCredentials,
+    auth_from_credentials,
+)
+from salesforce.bulk import parse_csv_chunk, parse_csv_stream
+from salesforce.client import (
+    ConflictError,
+    RateLimitInfo,
+    SalesforceAPIError,
+    SalesforceClient,
+)
 from salesforce.pubsub import PubSubConsumer
-from salesforce.writer import OutboxWriter
+from salesforce.writer import OutboxWriter, WriteOutcome
 
 __all__ = [
+    "AuthStrategy",
     "JWTBearerAuth",
+    "ClientCredentialsAuth",
     "SalesforceCredentials",
-    "BulkClient",
-    "PubSubConsumer",
+    "auth_from_credentials",
+    "SalesforceClient",
+    "SalesforceAPIError",
+    "ConflictError",
+    "RateLimitInfo",
     "OutboxWriter",
+    "WriteOutcome",
+    "PubSubConsumer",
+    "parse_csv_chunk",
+    "parse_csv_stream",
 ]

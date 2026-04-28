@@ -6,7 +6,7 @@ See [cogency_product_requirement_document.md](./cogency_product_requirement_docu
 
 ## Status
 
-Pre-development monorepo scaffold. The PRD targets a 12-week MVP with seven capabilities:
+Pre-development. Milestone 1 (scaffold) and Milestone 2 (Salesforce sync foundation) are in. The PRD targets a 12-week MVP with seven capabilities:
 
 1. Smart Case Intake & Structured Creation
 2. AOP Engine (Agent Operating Procedures) — the spine
@@ -16,11 +16,13 @@ Pre-development monorepo scaffold. The PRD targets a 12-week MVP with seven capa
 6. Eval & Observability Console
 7. Guardrails & Governance Layer
 
-## Stack (per PRD §8)
+## Stack
+
+The PRD specifies Claude Sonnet 4.5 for default reasoning; this build uses **OpenAI** instead (per project decision). All other choices follow PRD §8.1:
 
 - **Backend:** FastAPI (Python 3.12), LangGraph, Temporal
 - **Data:** Postgres 16 + pgvector + ParadeDB `pg_search`
-- **LLMs:** Claude Sonnet 4.5 (default), Opus 4.5 (escalation/judge), Haiku 4.5 (triage)
+- **LLMs:** OpenAI (`gpt-4o` default, `gpt-4o-mini` triage); Anthropic kept as optional cross-family judge
 - **Frontend:** Next.js 15 + React 19 + assistant-ui + Vercel AI SDK 6
 - **Salesforce:** Bulk API 2.0 + Pub/Sub gRPC (CDC) + REST composite writes
 - **Observability:** Langfuse (self-hosted)
@@ -31,26 +33,29 @@ Pre-development monorepo scaffold. The PRD targets a 12-week MVP with seven capa
 ```
 cogency/
 ├── apps/
-│   ├── api/         FastAPI service (health, /v1 routes)
+│   ├── api/         FastAPI service
 │   ├── worker/      Temporal worker (activities + workflows)
 │   └── web/         Next.js 15 + React 19 + Tailwind 4
 ├── packages/
-│   ├── salesforce/  JWT auth, Bulk 2.0, Pub/Sub gRPC, writer outbox
-│   ├── schemas/     Pydantic models shared across api/worker
-│   ├── aop/         AOP DSL parser, compiler, executor
+│   ├── db/          SQLAlchemy async session, ORM models, repositories
+│   ├── salesforce/  JWT auth, Bulk 2.0, REST client, Pub/Sub gRPC, writer outbox
+│   ├── schemas/     Pydantic contracts (CaseContext, BackfillCasesInput, ...)
+│   ├── aop/         AOP DSL parser, compiler
 │   ├── agents/      LangGraph: meta-agent, skills, copilot
-│   ├── tools/       Tool registry (Salesforce mirror, RAG, refund, email)
-│   ├── prompts/     Versioned prompt artifacts (synced to Langfuse)
+│   ├── tools/       Tool registry
+│   ├── prompts/     Versioned prompt artifacts
 │   ├── guardrails/  PII redaction, prompt injection, citation enforcement
 │   └── evals/       Golden datasets + LLM-judge rubrics
 ├── db/
 │   ├── alembic.ini
-│   └── migrations/
+│   └── migrations/  0001 initial schema, 0002 dev tenant seed
 ├── infra/
 │   ├── docker/      docker-compose.yml + Dockerfiles
 │   └── render.yaml
 └── scripts/
-    └── dev.sh       one-shot bootstrap (compose up + migrate)
+    ├── dev.sh                  one-shot bootstrap
+    ├── gen_pubsub_proto.sh     fetch SF Pub/Sub proto + emit gRPC stubs
+    └── backfill_cases.py       trigger a Bulk 2.0 backfill via Temporal
 ```
 
 ## Getting started
@@ -58,25 +63,39 @@ cogency/
 Prereqs: Docker, Python 3.12, [uv](https://docs.astral.sh/uv/), Node 20+, pnpm 9.
 
 ```bash
-# 1. Clone & install
 git clone https://github.com/vedayaj11/cogency.git
 cd cogency
-cp .env.example .env
+cp .env.example .env  # then fill in OPENAI_API_KEY, SF_*, etc.
 uv sync --all-packages
 pnpm install
 
-# 2. Start infra (Postgres+pgvector, Temporal, Langfuse) and run migrations
-./scripts/dev.sh
-
-# 3. Run the services
-make api     # http://localhost:8000/health
-make worker  # connects to Temporal
-make web     # http://localhost:3000
+./scripts/dev.sh         # boots Postgres+pgvector, Temporal, Langfuse; runs migrations
+make api                 # http://localhost:8000/health
+make worker              # connects to Temporal, registers workflows + activities
+make web                 # http://localhost:3000
 ```
 
-Other URLs once services are up:
+Other URLs:
 - Temporal UI → http://localhost:8233
 - Langfuse → http://localhost:3001
+
+## Running a Salesforce backfill
+
+```bash
+# 1. Make sure .env has SF_CLIENT_ID, SF_CLIENT_SECRET (or JWT key + USERNAME), SF_LOGIN_URL, SF_API_VERSION.
+# 2. Worker must be running.
+make worker
+
+# 3. In a second shell, trigger the backfill (CLI):
+uv run python scripts/backfill_cases.py
+# or via the API:
+curl -X POST http://localhost:8000/v1/integrations/salesforce/backfill \
+  -H 'content-type: application/json' -d '{}'
+
+# 4. Watch progress in Temporal UI: http://localhost:8233
+# 5. Read state:
+curl http://localhost:8000/v1/integrations/salesforce/sync_status
+```
 
 ## Make targets
 
@@ -95,16 +114,29 @@ Other URLs once services are up:
 ## What's wired vs. what's a stub
 
 **Wired:**
-- FastAPI app with `/health` and `/v1/integrations/salesforce/sync_status` routes
-- Temporal worker bootstrap with sample `HealthWorkflow` + `ping` activity
-- Next.js 15 starter with placeholder Workspace / Inbox / AOPs / Evals cards
-- Initial Alembic migration creating `sf.*` mirror schema, `cogency.*` tables, pgvector
-- Docker compose for Postgres+pgvector, Temporal (server + UI), Langfuse
+- FastAPI app with `/health`, `/v1/integrations/salesforce/{sync_status,connect,backfill}`
+- Temporal worker with `BackfillCasesWorkflow` + `backfill_cases` activity
+- `SalesforceClient`: JWT Bearer + Client Credentials auth, REST query/update/composite, Bulk 2.0 query lifecycle (submit, poll, stream results, delete), rate-limit gauge
+- `OutboxWriter` with optimistic concurrency (412 → conflict outcome)
+- Async SQLAlchemy session, ORM models for `sf.case/contact/account/user/sync_state`, `cogency.{tenants,aops,aop_versions,aop_runs,aop_steps,agent_inbox_items,audit_events}`
+- `CaseRepository.upsert_many` with system_modstamp guard (out-of-order events never clobber newer data)
+- Next.js 15 starter
+- Initial migration + dev tenant seed; pgvector extension installed
 
 **Stubbed (next milestones):**
-- Salesforce sync (Bulk 2.0 backfill, Pub/Sub CDC consumer, writer outbox) — `packages/salesforce`
-- AOP engine runtime executor (parser + compiler are real) — `packages/aop`
-- Meta-agent LangGraph graph — `packages/agents`
-- Guardrails (PII via Presidio, prompt injection via LLM Guard) — `packages/guardrails`
-- Eval runner + LLM-judge — `packages/evals`
-- Workspace UI, Inbox UI, AOP authoring UI — `apps/web/app/*`
+- Pub/Sub gRPC consumer — schema documented; `scripts/gen_pubsub_proto.sh` fetches Salesforce's proto and emits stubs
+- OAuth callback handler (code → token exchange + persist tenant credentials)
+- AOP runtime executor (parser + compiler are real)
+- Meta-agent LangGraph graph
+- Guardrails (Presidio + LLM Guard)
+- Eval runner + LLM-judge
+- Workspace UI, Inbox UI, AOP authoring UI
+
+## Auth flow notes
+
+The PRD prefers JWT Bearer (§7.4). This build supports both:
+
+- **JWT Bearer**: set `SF_CLIENT_ID`, `SF_USERNAME`, `SF_JWT_PRIVATE_KEY_PATH`. Upload the matching cert to the Connected App; pre-authorize the integration user.
+- **Client Credentials**: set `SF_CLIENT_ID`, `SF_CLIENT_SECRET`. Requires the Connected App to have "Enable Client Credentials Flow" set with a Run As user.
+
+`auth_from_credentials()` picks JWT if a private key file is present, else Client Credentials.

@@ -1,12 +1,12 @@
 [project]
-name = "cogency-evals"
+name = "cogency-db"
 version = "0.0.1"
-description = "Golden datasets + LLM-judge rubrics"
+description = "SQLAlchemy async session + ORM models for sf.* and cogency.* schemas"
 requires-python = ">=3.12"
 dependencies = [
+    "sqlalchemy>=2.0.35",
+    "asyncpg>=0.29",
     "pydantic>=2.9",
-    "openai>=1.50",
-    "cogency-schemas",
 ]
 
 [build-system]
@@ -14,4 +14,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["evals"]
+packages = ["db"]

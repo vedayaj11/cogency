@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from temporalio.client import Client as TemporalClient
 
 from app.config import get_settings
 from app.logging import configure_logging, get_logger
@@ -15,6 +16,16 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
     log.info("api.startup", env=settings.env)
+
+    try:
+        app.state.temporal = await TemporalClient.connect(
+            settings.temporal_host, namespace=settings.temporal_namespace
+        )
+        log.info("api.temporal_connected", host=settings.temporal_host)
+    except Exception as e:
+        log.warning("api.temporal_unavailable", error=str(e))
+        app.state.temporal = None
+
     yield
     log.info("api.shutdown")
 
