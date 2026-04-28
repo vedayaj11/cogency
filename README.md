@@ -6,7 +6,7 @@ See [cogency_product_requirement_document.md](./cogency_product_requirement_docu
 
 ## Status
 
-Pre-development. Milestone 1 (scaffold), Milestone 2 (Salesforce sync), and Milestone 3 (AOP runtime) are in. The PRD targets a 12-week MVP with seven capabilities:
+Pre-development. Milestones 1 (scaffold) → 4 (Workspace UI) are in. The PRD targets a 12-week MVP with seven capabilities:
 
 1. Smart Case Intake & Structured Creation
 2. AOP Engine (Agent Operating Procedures) — the spine
@@ -138,7 +138,7 @@ curl http://localhost:8000/v1/integrations/salesforce/sync_status
 ## What's wired vs. what's a stub
 
 **Wired:**
-- FastAPI: `/health`, `/v1/integrations/salesforce/{sync_status,connect,backfill}`, `/v1/aops`, `/v1/aop_runs/{id}`, `/v1/aop_runs`
+- FastAPI: `/health`, `/v1/integrations/salesforce/{sync_status,connect,backfill}`, `/v1/aops`, `/v1/aop_runs`, `/v1/aop_runs/{id}`, `/v1/cases`, `/v1/cases/{id}`, `/v1/inbox`
 - Temporal worker: `BackfillCasesWorkflow`, `RunAOPWorkflow`, `HealthWorkflow`
 - `SalesforceClient`: JWT + Client Credentials auth, REST query/update/composite, Bulk 2.0 query lifecycle, rate-limit gauge
 - `OutboxWriter` with optimistic concurrency (412 → conflict outcome)
@@ -147,6 +147,7 @@ curl http://localhost:8000/v1/integrations/salesforce/sync_status
 - Built-in tools: `lookup_case`, `lookup_contact`, `verify_customer_identity`, `propose_refund`, `add_case_comment`, `update_case_status`
 - Reference AOP: `aops/refund_under_500.md`
 - Inbox auto-creation on `escalated_human` outcomes
+- **Workspace UI** (Next.js 15, Tailwind 4, lucide icons): cases list with search/filter, 3-column case detail (customer panel + timeline + AOP run history), in-line "Run AOP" trigger, full step-by-step run trace viewer with input/output/error panes, inbox list, AOPs catalog, sync pill in app header
 - Unit tests for executor + guardrails
 
 **Stubbed (next milestones):**
@@ -156,7 +157,8 @@ curl http://localhost:8000/v1/integrations/salesforce/sync_status
 - RAG / knowledge layer (citation-grounded retrieval)
 - Guardrails (Presidio PII + LLM Guard prompt-injection)
 - Eval runner + LLM-judge
-- Workspace UI, Inbox UI, AOP authoring UI
+- Inbox actions (approve / modify / reject endpoints + UI buttons)
+- AOP authoring UI (today AOPs are uploaded via API only)
 
 ## Auth flow notes
 

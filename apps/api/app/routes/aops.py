@@ -17,10 +17,12 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client as TemporalClient
 
+from sqlalchemy import desc, select
+
 from aop import compile_aop, parse_aop_source
 from aop.compiler import CompileError
 from db import AOPRepository, AOPRunRepository
-from db.models.aop import AOPVersion
+from db.models.aop import AOP, AOPVersion
 from schemas import (
     AOPCreateRequest,
     AOPCreateResponse,
@@ -33,6 +35,58 @@ from app.config import Settings
 from app.deps import db_session, settings_dep, temporal_client
 
 router = APIRouter()
+
+
+class AOPListItem(BaseModel):
+    id: UUID
+    name: str
+    description: str | None
+    current_version_id: UUID | None
+    current_version_number: int | None
+    versions_count: int
+
+
+class AOPListResponse(BaseModel):
+    items: list[AOPListItem]
+
+
+@router.get("/v1/aops", response_model=AOPListResponse)
+async def list_aops(
+    settings: Settings = Depends(settings_dep),
+    session: AsyncSession = Depends(db_session),
+) -> AOPListResponse:
+    stmt = (
+        select(AOP)
+        .where(AOP.tenant_id == settings.cogency_dev_tenant_id)
+        .order_by(AOP.name)
+    )
+    aops = list((await session.execute(stmt)).scalars().all())
+
+    items: list[AOPListItem] = []
+    for a in aops:
+        versions = list(
+            (
+                await session.execute(
+                    select(AOPVersion)
+                    .where(AOPVersion.aop_id == a.id)
+                    .order_by(desc(AOPVersion.version_number))
+                )
+            ).scalars().all()
+        )
+        current = next(
+            (v for v in versions if v.id == a.current_version_id), versions[0] if versions else None
+        )
+        items.append(
+            AOPListItem(
+                id=a.id,
+                name=a.name,
+                description=a.description,
+                current_version_id=a.current_version_id,
+                current_version_number=current.version_number if current else None,
+                versions_count=len(versions),
+            )
+        )
+    return AOPListResponse(items=items)
 
 
 @router.post("/v1/aops", response_model=AOPCreateResponse)
@@ -114,8 +168,6 @@ async def trigger_run(
         raise HTTPException(404, f"AOP '{payload.aop_name}' not found")
 
     if payload.version_number is not None:
-        from sqlalchemy import select
-
         stmt = select(AOPVersion).where(
             AOPVersion.aop_id == aop.id,
             AOPVersion.version_number == payload.version_number,
