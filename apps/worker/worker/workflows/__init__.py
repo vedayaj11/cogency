@@ -1,5 +1,15 @@
 from worker.workflows.aop_run import RunAOPWorkflow
 from worker.workflows.health import HealthWorkflow
-from worker.workflows.sf_backfill import BackfillCasesWorkflow
+from worker.workflows.sf_backfill import (
+    BackfillAllWorkflow,
+    BackfillCasesWorkflow,
+    BackfillSObjectWorkflow,
+)
 
-__all__ = ["HealthWorkflow", "BackfillCasesWorkflow", "RunAOPWorkflow"]
+__all__ = [
+    "HealthWorkflow",
+    "BackfillCasesWorkflow",
+    "BackfillSObjectWorkflow",
+    "BackfillAllWorkflow",
+    "RunAOPWorkflow",
+]

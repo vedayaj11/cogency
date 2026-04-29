@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -29,6 +30,12 @@ async def execute_aop_run(payload: RunAOPInput) -> RunAOPResult:
     settings = get_settings()
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY not configured")
+
+    # Tools that bypass the executor's LLMClient (the analyze.py family) read
+    # OPENAI_API_KEY from os.environ. Pydantic-settings loads it from .env
+    # into Settings, but doesn't propagate to os.environ — so do it here.
+    os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
+    os.environ.setdefault("OPENAI_DEFAULT_MODEL", settings.openai_default_model)
 
     llm = LLMClient(api_key=settings.openai_api_key, model=settings.openai_default_model)
     registry = build_default_registry()
@@ -121,15 +128,30 @@ async def execute_aop_run(payload: RunAOPInput) -> RunAOPResult:
         )
         if outcome.status == "escalated_human":
             inbox = InboxRepository(session)
+            last = outcome.steps[-1] if outcome.steps else None
+            # Pre-call gates record `awaiting_approval=True` in the step's
+            # output and the proposed call's args in the input. Surface that
+            # cleanly so the inbox-approve endpoint can re-fire the action.
+            proposed_action: dict | None = None
+            if (
+                last is not None
+                and last.status == "halted_by_guardrail"
+                and isinstance(last.output, dict)
+                and last.output.get("awaiting_approval") is True
+            ):
+                proposed_action = {
+                    "tool": last.tool_name,
+                    "args": last.input,
+                    "reason": last.error,
+                }
             await inbox.create(
                 tenant_id=payload.tenant_id,
                 case_id=payload.case_id,
-                escalation_reason="guardrail_required_approval",
+                escalation_reason=(last.error if last else None) or "guardrail_required_approval",
                 recommended_action={
                     "trace_id": trace_id,
-                    "last_step": (
-                        outcome.steps[-1].model_dump() if outcome.steps else None
-                    ),
+                    "proposed_action": proposed_action,
+                    "last_step": last.model_dump() if last else None,
                 },
                 confidence=None,
             )

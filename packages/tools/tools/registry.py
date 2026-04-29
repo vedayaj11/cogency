@@ -41,6 +41,19 @@ class Tool(Generic[TIn, TOut]):
     input_schema: type[TIn]
     output_schema: type[TOut]
     func: Callable[[ToolContext, TIn], Awaitable[TOut]]
+    # When True, the executor halts before invoking this tool, records an
+    # `awaiting_approval` step, and creates an inbox item carrying the
+    # proposed call arguments. A human approves from /inbox; the inbox-
+    # approve endpoint re-fires the call via OutboxWriter. Default False —
+    # write tools that should be auto-fired (internal notes, low-stakes
+    # field updates) leave it False; high-stakes writes (external email,
+    # close case, escalation) set it True.
+    requires_approval: bool = False
+    # Read tools are eligible for parallel dispatch when the LLM emits
+    # multiple tool calls in one turn. Defaults to True for tools whose
+    # required_scopes contain only `*.read`; computable but explicit is
+    # safer.
+    is_read_only: bool = False
 
     def to_openai_spec(self) -> dict[str, Any]:
         schema = self.input_schema.model_json_schema()

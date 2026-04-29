@@ -1,37 +1,28 @@
 """Build a SalesforceClient from worker settings.
 
-For MVP we use a single global integration credential per worker process. In
-production, per-tenant creds will live in the `salesforce_connections` table
-and we'll resolve at activity start.
+Thin wrapper over `salesforce.build_salesforce_client` that pulls fields
+from `WorkerSettings`. The API has its own equivalent shim (in app.deps)
+that pulls from `Settings`.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from salesforce import (
-    SalesforceClient,
-    SalesforceCredentials,
-    auth_from_credentials,
-)
+from salesforce import SalesforceClient, build_salesforce_client
 
 from worker.config import WorkerSettings
 
 
-def build_salesforce_client(settings: WorkerSettings) -> SalesforceClient:
-    private_key_path: Path | None = None
-    if settings.sf_jwt_private_key_path:
-        candidate = Path(settings.sf_jwt_private_key_path)
-        if candidate.exists():
-            private_key_path = candidate
-
-    creds = SalesforceCredentials(
+def build_salesforce_client_from_settings(settings: WorkerSettings) -> SalesforceClient:
+    return build_salesforce_client(
         client_id=settings.sf_client_id,
         client_secret=settings.sf_client_secret or None,
         username=settings.sf_username or None,
-        private_key_path=private_key_path,
+        private_key_path=settings.sf_jwt_private_key_path,
         login_url=settings.sf_login_url,
         token_url=settings.sf_token_url,
+        api_version=settings.sf_api_version,
     )
-    auth = auth_from_credentials(creds)
-    return SalesforceClient(auth=auth, api_version=settings.sf_api_version)
+
+
+# Backwards-compatible alias used by existing activities.
+build_salesforce_client = build_salesforce_client_from_settings  # type: ignore[assignment]

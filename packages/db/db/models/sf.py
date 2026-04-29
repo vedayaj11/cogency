@@ -9,10 +9,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from datetime import date
+
 from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
     Boolean,
+    Date,
     LargeBinary,
     PrimaryKeyConstraint,
     Text,
@@ -74,6 +77,64 @@ class SfCase(Base, _SfMirrorMixin):
     account_id: Mapped[str | None] = mapped_column(Text)
     owner_id: Mapped[str | None] = mapped_column(Text)
     created_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class SfEmailMessage(Base, _SfMirrorMixin):
+    __tablename__ = "email_message"
+    __table_args__ = (PrimaryKeyConstraint("org_id", "id"), {"schema": "sf"})
+
+    parent_id: Mapped[str | None] = mapped_column(Text)  # SF Case Id
+    from_address: Mapped[str | None] = mapped_column(Text)
+    to_address: Mapped[str | None] = mapped_column(Text)
+    cc_address: Mapped[str | None] = mapped_column(Text)
+    bcc_address: Mapped[str | None] = mapped_column(Text)
+    subject: Mapped[str | None] = mapped_column(Text)
+    text_body: Mapped[str | None] = mapped_column(Text)
+    html_body: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(Text)
+    incoming: Mapped[bool] = mapped_column(Boolean, default=False)
+    message_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class SfCaseComment(Base, _SfMirrorMixin):
+    __tablename__ = "case_comment"
+    __table_args__ = (PrimaryKeyConstraint("org_id", "id"), {"schema": "sf"})
+
+    parent_id: Mapped[str | None] = mapped_column(Text)  # SF Case Id
+    comment_body: Mapped[str | None] = mapped_column(Text)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by_id: Mapped[str | None] = mapped_column(Text)
+    created_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class SfTask(Base, _SfMirrorMixin):
+    __tablename__ = "task"
+    __table_args__ = (PrimaryKeyConstraint("org_id", "id"), {"schema": "sf"})
+
+    what_id: Mapped[str | None] = mapped_column(Text)  # related-to (Case)
+    who_id: Mapped[str | None] = mapped_column(Text)
+    owner_id: Mapped[str | None] = mapped_column(Text)
+    subject: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(Text)
+    priority: Mapped[str | None] = mapped_column(Text)
+    activity_date: Mapped[date | None] = mapped_column(Date)
+    description: Mapped[str | None] = mapped_column(Text)
+    type: Mapped[str | None] = mapped_column(Text)
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class SfKnowledgeArticleVersion(Base, _SfMirrorMixin):
+    __tablename__ = "knowledge_article_version"
+    __table_args__ = (PrimaryKeyConstraint("org_id", "id"), {"schema": "sf"})
+
+    knowledge_article_id: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    url_name: Mapped[str | None] = mapped_column(Text)
+    publish_status: Mapped[str | None] = mapped_column(Text)
+    article_type: Mapped[str | None] = mapped_column(Text)
+    body: Mapped[str | None] = mapped_column(Text)
+    language: Mapped[str | None] = mapped_column(Text)
 
 
 class SfSyncState(Base):

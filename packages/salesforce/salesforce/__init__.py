@@ -17,6 +17,7 @@ from salesforce.client import (
     SalesforceAPIError,
     SalesforceClient,
 )
+from salesforce.factory import build_salesforce_client
 from salesforce.pubsub import PubSubConsumer
 from salesforce.writer import OutboxWriter, WriteOutcome
 
@@ -33,6 +34,7 @@ __all__ = [
     "OutboxWriter",
     "WriteOutcome",
     "PubSubConsumer",
+    "build_salesforce_client",
     "parse_csv_chunk",
     "parse_csv_stream",
 ]

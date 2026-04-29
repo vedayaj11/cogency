@@ -51,6 +51,7 @@ LOOKUP_CONTACT = Tool(
     input_schema=LookupContactInput,
     output_schema=LookupContactOutput,
     func=lookup_contact,
+    is_read_only=True,
 )
 
 
@@ -109,4 +110,5 @@ VERIFY_CUSTOMER_IDENTITY = Tool(
     input_schema=VerifyIdentityInput,
     output_schema=VerifyIdentityOutput,
     func=verify_customer_identity,
+    is_read_only=True,
 )

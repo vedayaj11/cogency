@@ -6,7 +6,17 @@ from db.models.aop import (
     AOPVersion,
     AuditEvent,
 )
-from db.models.sf import SfAccount, SfCase, SfContact, SfSyncState, SfUser
+from db.models.sf import (
+    SfAccount,
+    SfCase,
+    SfCaseComment,
+    SfContact,
+    SfEmailMessage,
+    SfKnowledgeArticleVersion,
+    SfSyncState,
+    SfTask,
+    SfUser,
+)
 from db.models.tenant import Tenant
 
 __all__ = [
@@ -16,6 +26,10 @@ __all__ = [
     "SfContact",
     "SfAccount",
     "SfUser",
+    "SfEmailMessage",
+    "SfCaseComment",
+    "SfTask",
+    "SfKnowledgeArticleVersion",
     "AOP",
     "AOPVersion",
     "AOPRun",

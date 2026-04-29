@@ -593,6 +593,7 @@ dependencies = [
     { name = "cogency-db" },
     { name = "cogency-salesforce" },
     { name = "cogency-schemas" },
+    { name = "openai" },
     { name = "pydantic" },
     { name = "sqlalchemy" },
 ]
@@ -602,6 +603,7 @@ requires-dist = [
     { name = "cogency-db", editable = "packages/db" },
     { name = "cogency-salesforce", editable = "packages/salesforce" },
     { name = "cogency-schemas", editable = "packages/schemas" },
+    { name = "openai", specifier = ">=1.50" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "sqlalchemy", specifier = ">=2.0.35" },
 ]

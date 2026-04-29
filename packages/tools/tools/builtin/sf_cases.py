@@ -60,6 +60,7 @@ LOOKUP_CASE = Tool(
     input_schema=LookupCaseInput,
     output_schema=LookupCaseOutput,
     func=lookup_case,
+    is_read_only=True,
 )
 
 

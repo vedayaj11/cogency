@@ -45,4 +45,5 @@ PROPOSE_REFUND = Tool(
     input_schema=ProposeRefundInput,
     output_schema=ProposeRefundOutput,
     func=propose_refund,
+    is_read_only=True,  # no side effects; proposal only
 )

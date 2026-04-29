@@ -28,6 +28,7 @@ Activity is a follow-up (PRD §8.3).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
@@ -38,8 +39,8 @@ from uuid import uuid4
 from aop import AOP, Guardrail
 from schemas import AOPRunOutcome, AOPStepResult
 
-from agents.llm import LLMClient, TokenUsage
 from agents.guardrails import GuardrailViolation, evaluate_guardrails
+from agents.llm import LLMClient, ToolCall, TokenUsage
 
 
 class AOPExecutionError(Exception):
@@ -51,6 +52,14 @@ class ExecutorRuntimeState:
     """Mutable state visible to guardrail evaluators."""
 
     variables: dict[str, Any] = field(default_factory=dict)
+
+    def update_from_tool_input(self, tool_name: str, input_args: dict[str, Any]) -> None:
+        """Promote tool-call args into runtime state so guardrails can match
+        on call arguments (e.g. `add_case_comment.is_public == true`)
+        before the tool fires."""
+        for k, v in input_args.items():
+            if isinstance(v, (int, float, str, bool)) or v is None:
+                self.variables[f"{tool_name}.{k}"] = v
 
     def update_from_tool_output(self, tool_name: str, output: dict[str, Any]) -> None:
         # Promote scalar outputs to top-level keys so guardrail expressions
@@ -142,12 +151,74 @@ class AOPExecutor:
                 }
             )
 
+            # ---- Pre-call gates ----
+            # 1. Feed each call's arguments into runtime state so AOP
+            #    guardrails can match on tool input parameters.
+            # 2. Check Tool.requires_approval and any AOP guardrail that
+            #    fires given the proposed call. A gated call halts the run
+            #    with status=escalated_human; the activity reads the
+            #    `awaiting_approval` step's input field to create an inbox
+            #    item carrying the proposed tool + args.
             for call in resp.tool_calls:
-                t0 = time.perf_counter()
-                step_status = "succeeded"
-                error: str | None = None
-                output_dict: dict[str, Any] = {}
+                state.update_from_tool_input(call.name, call.arguments)
 
+            gated_call: ToolCall | None = None
+            gated_reason: str | None = None
+            for call in resp.tool_calls:
+                try:
+                    tool = self.registry.get(call.name)
+                except KeyError:
+                    continue  # let the dispatch loop record the failure
+                if getattr(tool, "requires_approval", False):
+                    gated_call, gated_reason = (
+                        call,
+                        f"tool '{call.name}' requires human approval",
+                    )
+                    break
+                # Also evaluate AOP guardrails using the current state
+                # (which now includes inputs for this call).
+                violations = evaluate_guardrails(aop.guardrails, state.variables)
+                pre_halt = self._reduce_violations(violations)
+                if pre_halt is not None and pre_halt[0] == "escalated_human":
+                    gated_call, gated_reason = call, pre_halt[1]
+                    break
+
+            if gated_call is not None:
+                steps.append(
+                    AOPStepResult(
+                        step_index=len(steps),
+                        tool_name=gated_call.name,
+                        input=gated_call.arguments,
+                        output={"awaiting_approval": True, "reason": gated_reason},
+                        status="halted_by_guardrail",
+                        error=gated_reason,
+                    )
+                )
+                return AOPRunOutcome(
+                    run_id=run_id,
+                    aop_version_id=aop_version_id,
+                    case_id=case_id,
+                    status="escalated_human",
+                    started_at=started_at,
+                    ended_at=datetime.now(UTC),
+                    steps=steps,
+                    cost_usd=usage.cost_usd,
+                    token_in=usage.prompt_tokens,
+                    token_out=usage.completion_tokens,
+                    trace_id=trace_id,
+                )
+
+            # ---- Dispatch ----
+            # Calls run sequentially against the shared ToolContext session.
+            # Parallel read dispatch is a future optimization that requires
+            # per-call DB sessions (the SQLAlchemy AsyncSession can't be
+            # shared between concurrent coroutines). The read/write
+            # partition is preserved as documentation but currently both
+            # run sequentially.
+            async def _dispatch_one(call: ToolCall) -> tuple[
+                ToolCall, str, dict[str, Any], str | None, int
+            ]:
+                t0 = time.perf_counter()
                 try:
                     tool = self.registry.get(call.name)
                     if not set(tool.required_scopes).issubset(scope_set):
@@ -157,13 +228,17 @@ class AOPExecutor:
                         )
                     parsed = tool.input_schema.model_validate(call.arguments)
                     result = await tool.func(tool_context, parsed)
-                    output_dict = result.model_dump()
+                    return (call, "succeeded", result.model_dump(), None,
+                            int((time.perf_counter() - t0) * 1000))
                 except Exception as e:
-                    step_status = "failed"
-                    error = str(e)
-                    output_dict = {"error": error}
+                    return (call, "failed", {"error": str(e)}, str(e),
+                            int((time.perf_counter() - t0) * 1000))
 
-                latency_ms = int((time.perf_counter() - t0) * 1000)
+            dispatched: list[tuple[ToolCall, str, dict[str, Any], str | None, int]] = []
+            for c in resp.tool_calls:
+                dispatched.append(await _dispatch_one(c))
+
+            for call, step_status, output_dict, error, latency_ms in dispatched:
                 steps.append(
                     AOPStepResult(
                         step_index=len(steps),
@@ -172,12 +247,11 @@ class AOPExecutor:
                         output=output_dict,
                         status=step_status,
                         latency_ms=latency_ms,
-                        cost_usd=0.0,  # tool itself has no LLM cost
+                        cost_usd=0.0,
                         error=error,
                     )
                 )
                 state.update_from_tool_output(call.name, output_dict)
-
                 messages.append(
                     {
                         "role": "tool",
@@ -186,38 +260,38 @@ class AOPExecutor:
                     }
                 )
 
-                # Evaluate guardrails after each tool result. A halting
-                # guardrail short-circuits; an approval-required guardrail
-                # routes to inbox.
-                violations = evaluate_guardrails(aop.guardrails, state.variables)
-                halt_reason = self._reduce_violations(violations)
-                if halt_reason is not None:
-                    halt_status, halt_message = halt_reason
-                    steps.append(
-                        AOPStepResult(
-                            step_index=len(steps),
-                            tool_name="(guardrail)",
-                            input={},
-                            output={"violation": halt_message},
-                            status="halted_by_guardrail",
-                            error=halt_message,
-                        )
+            # ---- Post-result guardrails ----
+            # Evaluate after each batch using accumulated outputs. A halting
+            # guardrail short-circuits; a requires_approval guardrail that
+            # fires here (rather than pre-call, e.g. amount-based) also
+            # routes to inbox.
+            violations = evaluate_guardrails(aop.guardrails, state.variables)
+            halt_reason = self._reduce_violations(violations)
+            if halt_reason is not None:
+                halt_status, halt_message = halt_reason
+                steps.append(
+                    AOPStepResult(
+                        step_index=len(steps),
+                        tool_name="(guardrail)",
+                        input={},
+                        output={"violation": halt_message},
+                        status="halted_by_guardrail",
+                        error=halt_message,
                     )
-                    status = halt_status
-                    outcome_reason = halt_message
-                    return AOPRunOutcome(
-                        run_id=run_id,
-                        aop_version_id=aop_version_id,
-                        case_id=case_id,
-                        status=status,
-                        started_at=started_at,
-                        ended_at=datetime.now(UTC),
-                        steps=steps,
-                        cost_usd=usage.cost_usd,
-                        token_in=usage.prompt_tokens,
-                        token_out=usage.completion_tokens,
-                        trace_id=trace_id,
-                    )
+                )
+                return AOPRunOutcome(
+                    run_id=run_id,
+                    aop_version_id=aop_version_id,
+                    case_id=case_id,
+                    status=halt_status,
+                    started_at=started_at,
+                    ended_at=datetime.now(UTC),
+                    steps=steps,
+                    cost_usd=usage.cost_usd,
+                    token_in=usage.prompt_tokens,
+                    token_out=usage.completion_tokens,
+                    trace_id=trace_id,
+                )
         else:
             status = "failed"
             outcome_reason = f"exceeded max_steps={self.max_steps}"
