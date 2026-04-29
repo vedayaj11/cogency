@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -44,7 +44,7 @@ class SyncStateRepository:
             "channel": channel,
             "watermark_ts": watermark_ts,
             "cdc_replay_id": cdc_replay_id,
-            "last_run_at": datetime.utcnow(),
+            "last_run_at": datetime.now(UTC),
             "last_status": last_status,
         }
         stmt = insert(SfSyncState).values(payload)

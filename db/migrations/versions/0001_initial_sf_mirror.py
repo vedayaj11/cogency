@@ -24,7 +24,13 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     # extensions
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    has_vector = bool(
+        op.get_bind()
+        .execute(sa.text("SELECT 1 FROM pg_available_extensions WHERE name='vector'"))
+        .scalar()
+    )
+    if has_vector:
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # schemas
     op.execute("CREATE SCHEMA IF NOT EXISTS sf")
@@ -138,9 +144,11 @@ def upgrade() -> None:
     op.create_index("ix_sf_case_custom_gin", "case", ["custom_fields"],
                     postgresql_using="gin", schema="sf")
 
-    # promote embedding to pgvector after column creation (avoids alembic dialect quirks)
-    op.execute("ALTER TABLE sf.case DROP COLUMN embedding")
-    op.execute("ALTER TABLE sf.case ADD COLUMN embedding vector(1536)")
+    # promote embedding to pgvector when available; otherwise leave as float[]
+    # (nothing reads or writes the column yet — RAG layer comes later).
+    if has_vector:
+        op.execute("ALTER TABLE sf.case DROP COLUMN embedding")
+        op.execute("ALTER TABLE sf.case ADD COLUMN embedding vector(1536)")
 
     # ---- cogency-native: AOP engine, inbox, evals, audit ----
     op.create_table(

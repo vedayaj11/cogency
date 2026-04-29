@@ -10,6 +10,7 @@ PRD §10.2:
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,7 +23,7 @@ from sqlalchemy import desc, select
 from aop import compile_aop, parse_aop_source
 from aop.compiler import CompileError
 from db import AOPRepository, AOPRunRepository
-from db.models.aop import AOP, AOPVersion
+from db.models.aop import AOP, AOPRun, AOPVersion
 from schemas import (
     AOPCreateRequest,
     AOPCreateResponse,
@@ -148,7 +149,8 @@ class RunAOPRequest(BaseModel):
 
 class RunAOPStarted(BaseModel):
     workflow_id: str
-    run_id: str
+    run_id: UUID  # cogency aop_run.id (deep-linkable at /runs/{run_id})
+    temporal_run_id: str  # Temporal's internal run id (for ops debugging only)
     aop_version_id: UUID
 
 
@@ -181,13 +183,26 @@ async def trigger_run(
     if version is None:
         raise HTTPException(400, "AOP has no usable version; deploy a version first")
 
-    workflow_id = f"aop-run-{aop.name}-{payload.case_id}-{uuid4()}"
+    # Pre-create the cogency aop_run row so we can return its id immediately.
+    # The workflow activity adopts it (looks up by run_id and transitions to
+    # status="running"), avoiding a race between API response and DB insert.
+    run_repo = AOPRunRepository(session)
+    run = await run_repo.create(
+        tenant_id=settings.cogency_dev_tenant_id,
+        aop_version_id=version.id,
+        case_id=payload.case_id,
+        trace_id="",  # filled by the activity
+        status="pending",
+    )
+
+    workflow_id = f"aop-run-{aop.name}-{payload.case_id}-{run.id}"
     handle = await temporal.start_workflow(
         "RunAOPWorkflow",
         RunAOPInput(
             tenant_id=settings.cogency_dev_tenant_id,
             aop_version_id=version.id,
             case_id=payload.case_id,
+            run_id=run.id,
             granted_scopes=payload.granted_scopes
             or [
                 "case.read",
@@ -201,8 +216,79 @@ async def trigger_run(
     )
     return RunAOPStarted(
         workflow_id=workflow_id,
-        run_id=handle.first_execution_run_id or "",
+        run_id=run.id,
+        temporal_run_id=handle.first_execution_run_id or "",
         aop_version_id=version.id,
+    )
+
+
+class AOPRunListItem(BaseModel):
+    id: UUID
+    case_id: str
+    aop_version_id: UUID
+    aop_name: str | None
+    status: str
+    started_at: datetime
+    ended_at: datetime | None
+    cost_usd: float
+    token_in: int
+    token_out: int
+
+
+class AOPRunListResponse(BaseModel):
+    items: list[AOPRunListItem]
+    total: int
+
+
+@router.get("/v1/aop_runs", response_model=AOPRunListResponse)
+async def list_runs(
+    settings: Settings = Depends(settings_dep),
+    session: AsyncSession = Depends(db_session),
+    status: str | None = None,
+    case_id: str | None = None,
+    aop_name: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> AOPRunListResponse:
+    base = (
+        select(AOPRun, AOP.name)
+        .join(AOPVersion, AOPVersion.id == AOPRun.aop_version_id)
+        .join(AOP, AOP.id == AOPVersion.aop_id)
+        .where(AOPRun.tenant_id == settings.cogency_dev_tenant_id)
+    )
+    if status:
+        base = base.where(AOPRun.status == status)
+    if case_id:
+        base = base.where(AOPRun.case_id == case_id)
+    if aop_name:
+        base = base.where(AOP.name == aop_name)
+
+    from sqlalchemy import func as _func
+
+    total = (
+        await session.execute(_func.count().select().select_from(base.subquery()))
+    ).scalar_one()
+
+    stmt = base.order_by(desc(AOPRun.started_at)).limit(limit).offset(offset)
+    rows = (await session.execute(stmt)).all()
+
+    return AOPRunListResponse(
+        items=[
+            AOPRunListItem(
+                id=run.id,
+                case_id=run.case_id,
+                aop_version_id=run.aop_version_id,
+                aop_name=name,
+                status=run.status,
+                started_at=run.started_at,
+                ended_at=run.ended_at,
+                cost_usd=float(run.cost_usd or 0),
+                token_in=run.token_in or 0,
+                token_out=run.token_out or 0,
+            )
+            for run, name in rows
+        ],
+        total=total,
     )
 
 

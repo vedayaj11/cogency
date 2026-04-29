@@ -6,8 +6,10 @@ services:
       POSTGRES_USER: cogency
       POSTGRES_PASSWORD: cogency_dev
       POSTGRES_DB: cogency
-    ports:
-      - "5432:5432"
+    # Host port intentionally not exposed: app data lives in the developer's
+    # local Postgres on :5432, this container backs only Temporal + Langfuse
+    # on the internal docker network. Add `ports: ["5433:5432"]` if you want
+    # to peek at it from the host.
     volumes:
       - cogency_pgdata:/var/lib/postgresql/data
     healthcheck:

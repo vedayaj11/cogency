@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -101,12 +101,13 @@ class AOPRunRepository:
         aop_version_id: UUID,
         case_id: str,
         trace_id: str,
+        status: str = "running",
     ) -> AOPRun:
         run = AOPRun(
             tenant_id=tenant_id,
             aop_version_id=aop_version_id,
             case_id=case_id,
-            status="running",
+            status=status,
             trace_id=trace_id,
         )
         self.session.add(run)
@@ -133,7 +134,7 @@ class AOPRunRepository:
         run.cost_usd = Decimal(str(cost_usd))
         run.token_in = token_in
         run.token_out = token_out
-        run.ended_at = datetime.utcnow()
+        run.ended_at = datetime.now(UTC)
 
         for s in steps:
             self.session.add(

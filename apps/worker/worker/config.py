@@ -1,11 +1,17 @@
 from functools import lru_cache
+from pathlib import Path
 from uuid import UUID
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Walk up from this file to the repo root so the worker process picks up
+# `.env` regardless of cwd (process is typically launched from apps/worker/).
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ENV_FILE = _REPO_ROOT / ".env"
+
 
 class WorkerSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
     temporal_host: str = "localhost:7233"
     temporal_namespace: str = "default"

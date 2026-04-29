@@ -119,7 +119,7 @@ function ErrorState({ message }: { message: string }) {
   return (
     <Empty
       title="Couldn't load cases"
-      hint={`API error: ${message}. Make sure the API service is running on http://localhost:8000.`}
+      hint={`API error: ${message}. Make sure the API service is running and reachable from the web server (COGENCY_API_URL).`}
     />
   );
 }

@@ -25,8 +25,12 @@ class Step(BaseModel):
     name: str
     tool: str
     required_scopes: list[str] = Field(default_factory=list)
-    inputs: dict[str, str] = Field(default_factory=dict)
-    outputs: dict[str, str] = Field(default_factory=dict)
+    # `inputs` and `outputs` are hint-level: a documentation contract between
+    # the AOP author and the model, not a binding interpolation. Allow any
+    # YAML scalar so authors can write `is_public: false` or `amount_usd: 100`
+    # without quoting.
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
     fallback: str | None = None
     timeout_seconds: int = 60
     retries: int = 3

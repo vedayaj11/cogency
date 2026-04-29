@@ -1,12 +1,18 @@
 from functools import lru_cache
+from pathlib import Path
 from uuid import UUID
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Resolve the repo-root .env regardless of process cwd (api may be launched
+# from apps/api/, scripts/, or the repo root).
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ENV_FILE = _REPO_ROOT / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
     env: str = "development"
     log_level: str = "INFO"

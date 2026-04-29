@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -74,7 +74,7 @@ def map_case_row(org_id: UUID, row: dict[str, Any]) -> dict[str, Any]:
         "custom_fields": custom,
         "created_date": parse_sf_datetime(row.get("CreatedDate")),
         "system_modstamp": parse_sf_datetime(row.get("SystemModstamp"))
-        or datetime.utcnow(),
+        or datetime.now(UTC),
         "is_deleted": is_deleted,
     }
 

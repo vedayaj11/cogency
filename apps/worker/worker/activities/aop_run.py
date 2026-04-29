@@ -72,12 +72,21 @@ async def execute_aop_run(payload: RunAOPInput) -> RunAOPResult:
         }
 
         run_repo = AOPRunRepository(session)
-        run = await run_repo.create(
-            tenant_id=payload.tenant_id,
-            aop_version_id=payload.aop_version_id,
-            case_id=payload.case_id,
-            trace_id=trace_id,
-        )
+        if payload.run_id is not None:
+            # API pre-created the row; adopt it and transition to running.
+            run = await run_repo.get(payload.run_id)
+            if run is None:
+                raise RuntimeError(f"aop_run {payload.run_id} not found")
+            run.status = "running"
+            run.trace_id = trace_id
+            await session.commit()
+        else:
+            run = await run_repo.create(
+                tenant_id=payload.tenant_id,
+                aop_version_id=payload.aop_version_id,
+                case_id=payload.case_id,
+                trace_id=trace_id,
+            )
 
     # Run the executor outside the persistence session so each tool call gets
     # a fresh transaction and we don't hold a connection during LLM calls.

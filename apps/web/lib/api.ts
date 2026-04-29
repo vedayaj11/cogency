@@ -87,6 +87,19 @@ export type RunStep = {
   error: string | null;
 };
 
+export type RunListItem = {
+  id: string;
+  case_id: string;
+  aop_version_id: string;
+  aop_name: string | null;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  cost_usd: number;
+  token_in: number;
+  token_out: number;
+};
+
 export type RunSummary = {
   id: string;
   aop_version_id: string;
@@ -124,10 +137,27 @@ export const api = {
   listInbox: (status: string = "pending") =>
     fetchJson<{ items: InboxItem[] }>(`/v1/inbox?status=${status}`),
   getRun: (id: string) => fetchJson<RunSummary>(`/v1/aop_runs/${id}`),
+  listRuns: (params: { status?: string; aop_name?: string; limit?: number; offset?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", params.status);
+    if (params.aop_name) qs.set("aop_name", params.aop_name);
+    qs.set("limit", String(params.limit ?? 50));
+    qs.set("offset", String(params.offset ?? 0));
+    return fetchJson<{ items: RunListItem[]; total: number }>(`/v1/aop_runs?${qs}`);
+  },
   syncStatus: () => fetchJson<SyncStatus>(`/v1/integrations/salesforce/sync_status`),
   startRun: (body: { aop_name: string; case_id: string }) =>
-    fetchJson<{ workflow_id: string; run_id: string; aop_version_id: string }>(
+    fetchJson<{ workflow_id: string; run_id: string; temporal_run_id: string; aop_version_id: string }>(
       `/v1/aop_runs`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  inboxAction: (
+    id: string,
+    action: "approve" | "reject" | "take_over",
+    body: { reason?: string } = {},
+  ) =>
+    fetchJson<{ id: string; status: string }>(`/v1/inbox/${id}/${action}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

@@ -7,6 +7,7 @@ import { Empty } from "@/components/ui/empty";
 import { api } from "@/lib/api";
 import { formatCost, formatRelative } from "@/lib/format";
 
+import { AutoRefresh } from "@/components/auto-refresh";
 import { RunAOPButton } from "./run-aop-button";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export default async function CaseDetailPage({
 
   return (
     <div className="space-y-4">
+      <AutoRefresh statuses={detail.runs.map((r) => r.status)} />
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">

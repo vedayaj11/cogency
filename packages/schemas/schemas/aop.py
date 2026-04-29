@@ -27,6 +27,10 @@ class RunAOPInput(BaseModel):
     tenant_id: UUID
     aop_version_id: UUID
     case_id: str
+    # Pre-created run row; activity adopts it instead of creating a fresh one.
+    # The API endpoint creates the row so the response can carry the canonical
+    # cogency run_id (the Temporal workflow run_id is internal and unstable).
+    run_id: UUID | None = None
     granted_scopes: list[str] = [
         "case.read",
         "case.update",

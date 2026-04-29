@@ -6,6 +6,8 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { formatCost, formatRelative, formatTokens } from "@/lib/format";
 
+import { AutoRefresh } from "@/components/auto-refresh";
+
 export const dynamic = "force-dynamic";
 
 export default async function RunPage({
@@ -19,6 +21,7 @@ export default async function RunPage({
 
   return (
     <div className="space-y-4">
+      <AutoRefresh statuses={[run.status]} />
       <div>
         <div className="flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
           <Link href={`/cases/${run.case_id}`} className="hover:underline">

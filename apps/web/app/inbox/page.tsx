@@ -6,6 +6,8 @@ import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 
+import { InboxActions } from "./inbox-actions";
+
 export const dynamic = "force-dynamic";
 
 export default async function InboxPage({
@@ -22,7 +24,7 @@ export default async function InboxPage({
         <div>
           <h1 className="text-xl font-semibold">Inbox</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Cases the AI escalated for human review.
+            Cases the AI escalated for human review. Actions write to the audit log.
           </p>
         </div>
         <form className="flex items-center gap-2" action="/inbox">
@@ -34,6 +36,7 @@ export default async function InboxPage({
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
+            <option value="taken_over">Taken over</option>
             <option value="">All</option>
           </select>
           <button className="h-8 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-sm hover:bg-[hsl(var(--muted))]">
@@ -53,9 +56,9 @@ export default async function InboxPage({
             <TR>
               <TH>Case</TH>
               <TH>Reason</TH>
-              <TH>Confidence</TH>
               <TH>Status</TH>
               <TH>Created</TH>
+              <TH>Actions</TH>
             </TR>
           </THead>
           <TBody>
@@ -68,15 +71,30 @@ export default async function InboxPage({
                 </TD>
                 <TD className="max-w-md">
                   <span className="line-clamp-2">{it.escalation_reason}</span>
-                </TD>
-                <TD className="text-[hsl(var(--muted-foreground))]">
-                  {it.confidence != null ? `${(it.confidence * 100).toFixed(0)}%` : "—"}
+                  {it.recommended_action &&
+                  typeof it.recommended_action === "object" &&
+                  "decision" in it.recommended_action ? (
+                    <div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                      {(() => {
+                        const d = (it.recommended_action as { decision: { action: string; by: string; reason?: string } }).decision;
+                        return (
+                          <>
+                            <span className="font-medium">{d.action}</span> by {d.by}
+                            {d.reason ? <> — “{d.reason}”</> : null}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ) : null}
                 </TD>
                 <TD>
                   <Badge variant={statusVariant(it.status)}>{it.status}</Badge>
                 </TD>
                 <TD className="text-[hsl(var(--muted-foreground))]">
                   {formatRelative(it.created_at)}
+                </TD>
+                <TD>
+                  <InboxActions id={it.id} status={it.status} />
                 </TD>
               </TR>
             ))}

@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -82,7 +82,7 @@ class AOPExecutor:
         trace_id: str | None = None,
     ) -> AOPRunOutcome:
         trace_id = trace_id or str(uuid4())
-        started_at = datetime.utcnow()
+        started_at = datetime.now(UTC)
         run_id = str(uuid4())
 
         scope_set = set(granted_scopes)
@@ -211,7 +211,7 @@ class AOPExecutor:
                         case_id=case_id,
                         status=status,
                         started_at=started_at,
-                        ended_at=datetime.utcnow(),
+                        ended_at=datetime.now(UTC),
                         steps=steps,
                         cost_usd=usage.cost_usd,
                         token_in=usage.prompt_tokens,
@@ -240,7 +240,7 @@ class AOPExecutor:
             case_id=case_id,
             status=status,
             started_at=started_at,
-            ended_at=datetime.utcnow(),
+            ended_at=datetime.now(UTC),
             steps=steps,
             cost_usd=usage.cost_usd,
             token_in=usage.prompt_tokens,
