@@ -57,3 +57,22 @@ class BackfillAllInput(BaseModel):
 
 class BackfillAllResult(BaseModel):
     results: list[BackfillSObjectResult]
+
+
+class ConsumeCaseCDCInput(BaseModel):
+    """Long-running CDC consumer: subscribe to /data/CaseChangeEvent and
+    optionally auto-trigger an AOP on each CREATE."""
+
+    tenant_id: UUID
+    topic: str = "/data/CaseChangeEvent"
+    auto_trigger_aop: str | None = "case_manager"
+    # If set, auto-trigger only fires when this AOP's current_version_id is
+    # not None (i.e. someone has explicitly deployed it).
+    require_deployed: bool = True
+    batch_size: int = 100
+
+
+class ConsumeCaseCDCResult(BaseModel):
+    events_processed: int
+    last_replay_id_hex: str | None
+    runs_triggered: int

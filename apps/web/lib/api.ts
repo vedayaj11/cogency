@@ -50,6 +50,7 @@ export type CaseDetail = {
   runs: {
     id: string;
     aop_version_id: string;
+    aop_name: string | null;
     status: string;
     started_at: string;
     ended_at: string | null;

@@ -18,7 +18,7 @@ from salesforce.client import (
     SalesforceClient,
 )
 from salesforce.factory import build_salesforce_client
-from salesforce.pubsub import PubSubConsumer
+from salesforce.pubsub import CDCEvent, PubSubConsumer
 from salesforce.writer import OutboxWriter, WriteOutcome
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "OutboxWriter",
     "WriteOutcome",
     "PubSubConsumer",
+    "CDCEvent",
     "build_salesforce_client",
     "parse_csv_chunk",
     "parse_csv_stream",

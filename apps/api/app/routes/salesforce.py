@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client as TemporalClient
 
 from db.models.sf import SfCase, SfSyncState
-from schemas import BackfillCasesInput
+from schemas import BackfillCasesInput, ConsumeCaseCDCInput
 
 from app.config import Settings
 from app.deps import db_session, settings_dep, temporal_client
@@ -102,6 +102,48 @@ async def trigger_backfill(
         task_queue=settings.temporal_task_queue,
     )
     return BackfillStarted(
+        workflow_id=workflow_id, run_id=handle.first_execution_run_id or ""
+    )
+
+
+class StartCDCRequest(BaseModel):
+    auto_trigger_aop: str | None = "case_manager"
+    require_deployed: bool = True
+
+
+class StartCDCResponse(BaseModel):
+    workflow_id: str
+    run_id: str
+
+
+@router.post("/start_cdc", response_model=StartCDCResponse, status_code=202)
+async def start_cdc(
+    payload: StartCDCRequest = StartCDCRequest(),
+    settings: Settings = Depends(settings_dep),
+    temporal: TemporalClient | None = Depends(temporal_client),
+) -> StartCDCResponse:
+    """Start the CDC consumer workflow.
+
+    Idempotent at the workflow_id level — calling twice with the same id
+    returns the existing run rather than starting a duplicate.
+    """
+    if temporal is None:
+        raise HTTPException(503, "temporal unavailable")
+
+    workflow_id = f"cdc-case-{settings.cogency_dev_tenant_id}"
+    handle = await temporal.start_workflow(
+        "CDCConsumerWorkflow",
+        ConsumeCaseCDCInput(
+            tenant_id=settings.cogency_dev_tenant_id,
+            auto_trigger_aop=payload.auto_trigger_aop,
+            require_deployed=payload.require_deployed,
+        ),
+        id=workflow_id,
+        task_queue=settings.temporal_task_queue,
+        # ID reuse policy: don't create a duplicate if one is already running
+        id_reuse_policy=2,  # REJECT_DUPLICATE
+    )
+    return StartCDCResponse(
         workflow_id=workflow_id, run_id=handle.first_execution_run_id or ""
     )
 

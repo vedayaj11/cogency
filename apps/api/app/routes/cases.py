@@ -46,6 +46,7 @@ class CaseListResponse(BaseModel):
 class CaseRunSummary(BaseModel):
     id: str
     aop_version_id: str
+    aop_name: str | None  # joined via aop_version → aop
     status: str
     started_at: datetime
     ended_at: datetime | None
@@ -170,19 +171,22 @@ async def get_case(
                 "account_id": contact.account_id,
             }
 
-    runs = list(
-        (
-            await session.execute(
-                select(AOPRun)
-                .where(
-                    AOPRun.tenant_id == settings.cogency_dev_tenant_id,
-                    AOPRun.case_id == case_id,
-                )
-                .order_by(desc(AOPRun.started_at))
-                .limit(20)
+    # Join through aop_versions → aops to also surface the AOP name per run.
+    from db.models.aop import AOP, AOPVersion
+
+    runs_with_name = (
+        await session.execute(
+            select(AOPRun, AOP.name)
+            .join(AOPVersion, AOPVersion.id == AOPRun.aop_version_id)
+            .join(AOP, AOP.id == AOPVersion.aop_id)
+            .where(
+                AOPRun.tenant_id == settings.cogency_dev_tenant_id,
+                AOPRun.case_id == case_id,
             )
-        ).scalars().all()
-    )
+            .order_by(desc(AOPRun.started_at))
+            .limit(20)
+        )
+    ).all()
 
     return CaseDetail(
         id=case.id,
@@ -202,11 +206,12 @@ async def get_case(
             CaseRunSummary(
                 id=str(r.id),
                 aop_version_id=str(r.aop_version_id),
+                aop_name=name,
                 status=r.status,
                 started_at=r.started_at,
                 ended_at=r.ended_at,
                 cost_usd=float(r.cost_usd or 0),
             )
-            for r in runs
+            for r, name in runs_with_name
         ],
     )

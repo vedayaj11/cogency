@@ -15,6 +15,8 @@ from schemas.sync import (
     BackfillCasesResult,
     BackfillSObjectInput,
     BackfillSObjectResult,
+    ConsumeCaseCDCInput,
+    ConsumeCaseCDCResult,
     SObjectName,
 )
 
@@ -31,6 +33,8 @@ __all__ = [
     "BackfillSObjectResult",
     "BackfillAllInput",
     "BackfillAllResult",
+    "ConsumeCaseCDCInput",
+    "ConsumeCaseCDCResult",
     "SObjectName",
     "AOPCreateRequest",
     "AOPCreateResponse",

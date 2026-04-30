@@ -7,6 +7,7 @@ from temporalio.worker import Worker
 from worker.activities import (
     backfill_cases,
     backfill_sobject,
+    consume_case_cdc,
     execute_aop_run,
     ping,
 )
@@ -15,6 +16,7 @@ from worker.workflows import (
     BackfillAllWorkflow,
     BackfillCasesWorkflow,
     BackfillSObjectWorkflow,
+    CDCConsumerWorkflow,
     HealthWorkflow,
     RunAOPWorkflow,
 )
@@ -37,8 +39,15 @@ async def run() -> None:
             BackfillSObjectWorkflow,
             BackfillAllWorkflow,
             RunAOPWorkflow,
+            CDCConsumerWorkflow,
         ],
-        activities=[ping, backfill_cases, backfill_sobject, execute_aop_run],
+        activities=[
+            ping,
+            backfill_cases,
+            backfill_sobject,
+            execute_aop_run,
+            consume_case_cdc,
+        ],
     )
     log.info("worker ready on task queue %s", settings.temporal_task_queue)
     await worker.run()

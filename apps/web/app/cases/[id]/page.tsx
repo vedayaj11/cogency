@@ -27,6 +27,7 @@ export default async function CaseDetailPage({
   if (!detail) notFound();
 
   const deployed = aops.items.filter((a) => a.current_version_id !== null);
+  const isAutoManaged = detail.runs.some((r) => r.aop_name === "case_manager");
 
   return (
     <div className="space-y-4">
@@ -44,6 +45,7 @@ export default async function CaseDetailPage({
           <div className="mt-1 flex items-center gap-2 text-xs">
             <Badge variant={statusVariant(detail.status)}>{detail.status ?? "—"}</Badge>
             {detail.priority ? <Badge variant="muted">{detail.priority}</Badge> : null}
+            {isAutoManaged ? <Badge variant="success">Auto-managed</Badge> : null}
             {detail.origin ? (
               <span className="text-[hsl(var(--muted-foreground))]">via {detail.origin}</span>
             ) : null}
@@ -132,10 +134,10 @@ export default async function CaseDetailPage({
                     when={r.started_at}
                     title={
                       <>
-                        AOP run{" "}
                         <Link href={`/runs/${r.id}`} className="hover:underline">
-                          {r.id.slice(0, 8)}
+                          <code className="font-mono text-xs">{r.aop_name ?? "aop"}</code>
                         </Link>{" "}
+                        run <span className="font-mono text-xs">{r.id.slice(0, 8)}</span>{" "}
                         — <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
                       </>
                     }
@@ -175,8 +177,10 @@ export default async function CaseDetailPage({
                   {detail.runs.map((r) => (
                     <li key={r.id} className="rounded-md border border-[hsl(var(--border))] p-2">
                       <Link href={`/runs/${r.id}`} className="block hover:underline">
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs">{r.id.slice(0, 8)}</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate font-mono text-xs">
+                            {r.aop_name ?? r.id.slice(0, 8)}
+                          </span>
                           <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
                         </div>
                         <div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
