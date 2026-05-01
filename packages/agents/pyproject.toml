@@ -11,6 +11,7 @@ dependencies = [
     "cogency-schemas",
     "cogency-aop",
     "cogency-prompts",
+    "cogency-guardrails",
 ]
 
 [build-system]

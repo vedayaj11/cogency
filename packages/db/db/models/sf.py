@@ -16,11 +16,12 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Date,
+    Float,
     LargeBinary,
     PrimaryKeyConstraint,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.session import Base
@@ -77,6 +78,9 @@ class SfCase(Base, _SfMirrorMixin):
     account_id: Mapped[str | None] = mapped_column(Text)
     owner_id: Mapped[str | None] = mapped_column(Text)
     created_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # Stored as float[] when pgvector is unavailable (the migration's
+    # has_vector branch decides). Lazy-populated by search_similar_cases.
+    embedding: Mapped[list[float] | None] = mapped_column(PG_ARRAY(Float), default=None)
 
 
 class SfEmailMessage(Base, _SfMirrorMixin):

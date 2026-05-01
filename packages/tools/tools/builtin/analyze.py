@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 
 from db.models.sf import SfCase, SfCaseComment, SfEmailMessage
+from rag import OpenAIEmbeddings, cosine_similarity
 
 from tools.registry import Tool, ToolContext
 
@@ -302,11 +303,36 @@ class SearchSimilarCasesOutput(BaseModel):
     method: Literal["text", "semantic"]
 
 
+async def _ensure_embedding(ctx: ToolContext, case: SfCase) -> list[float] | None:
+    """Lazy-populate `sf.case.embedding` if missing.
+
+    Embeds (subject + description) — same shape as ingestion. We avoid a
+    bulk backfill activity for now; embeddings get populated as
+    search_similar_cases is called against the case for the first time.
+    """
+    if case.embedding:
+        return list(case.embedding)
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        return None
+    text = ((case.subject or "") + "\n" + (case.description or "")).strip()
+    if not text:
+        return None
+    embeddings = OpenAIEmbeddings(api_key=api_key, model=os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large"))
+    vec = await embeddings.embed_query(text)
+    case.embedding = vec
+    if ctx.session is not None:
+        await ctx.session.commit()
+    return vec
+
+
 async def search_similar_cases(
     ctx: ToolContext, p: SearchSimilarCasesInput
 ) -> SearchSimilarCasesOutput:
-    """M6 implementation: text-based on case subject keywords. M7 promotes
-    this to vector cosine over the populated `embedding` column."""
+    """Vector-cosine search over `sf.case.embedding`. Falls back to a
+    text-keyword match if the source case has no text or embeddings are
+    unavailable. Embeddings populate lazily — the first call against a
+    case backfills its row."""
     if ctx.session is None:
         raise RuntimeError("search_similar_cases requires a DB session")
     case = (
@@ -319,7 +345,41 @@ async def search_similar_cases(
     if case is None or not case.subject:
         return SearchSimilarCasesOutput(items=[], method="text")
 
-    # Crude keyword overlap until embeddings ship.
+    query_vec = await _ensure_embedding(ctx, case)
+    if query_vec is not None:
+        # Vector path — pull every other case with an embedding for this
+        # tenant, score in Python, return top-k.
+        stmt = (
+            select(SfCase)
+            .where(
+                SfCase.org_id == ctx.tenant_id,
+                SfCase.id != p.case_id,
+                SfCase.is_deleted.is_(False),
+                SfCase.embedding.is_not(None),
+            )
+        )
+        rows = list((await ctx.session.execute(stmt)).scalars().all())
+        scored = []
+        for r in rows:
+            s = cosine_similarity(query_vec, list(r.embedding or []))
+            scored.append((s, r))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = scored[: p.limit]
+        if top:
+            return SearchSimilarCasesOutput(
+                items=[
+                    SimilarCaseItem(
+                        id=r.id,
+                        case_number=r.case_number,
+                        subject=r.subject,
+                        status=r.status,
+                    )
+                    for _s, r in top
+                ],
+                method="semantic",
+            )
+
+    # Fallback: keyword overlap on subject.
     keywords = [w for w in case.subject.split() if len(w) >= 4][:5]
     if not keywords:
         return SearchSimilarCasesOutput(items=[], method="text")

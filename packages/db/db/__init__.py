@@ -11,6 +11,8 @@ from db.models import (
     AOPStep,
     AOPVersion,
     AuditEvent,
+    KnowledgeChunk,
+    KnowledgeSource,
     SfAccount,
     SfCase,
     SfCaseComment,
@@ -66,4 +68,6 @@ __all__ = [
     "AOPStep",
     "AgentInboxItem",
     "AuditEvent",
+    "KnowledgeSource",
+    "KnowledgeChunk",
 ]

@@ -18,6 +18,7 @@ members = [
     "packages/prompts",
     "packages/guardrails",
     "packages/evals",
+    "packages/rag",
 ]
 
 [tool.uv.sources]
@@ -30,6 +31,7 @@ cogency-tools = { workspace = true }
 cogency-prompts = { workspace = true }
 cogency-guardrails = { workspace = true }
 cogency-evals = { workspace = true }
+cogency-rag = { workspace = true }
 
 [dependency-groups]
 dev = [

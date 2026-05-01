@@ -6,6 +6,7 @@ from db.models.aop import (
     AOPVersion,
     AuditEvent,
 )
+from db.models.knowledge import KnowledgeChunk, KnowledgeSource
 from db.models.sf import (
     SfAccount,
     SfCase,
@@ -36,4 +37,6 @@ __all__ = [
     "AOPStep",
     "AgentInboxItem",
     "AuditEvent",
+    "KnowledgeSource",
+    "KnowledgeChunk",
 ]

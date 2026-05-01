@@ -25,6 +25,7 @@ dependencies = [
     "cogency-agents",
     "cogency-tools",
     "cogency-guardrails",
+    "cogency-rag",
 ]
 
 [build-system]

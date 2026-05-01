@@ -131,6 +131,33 @@ class AOPExecutor:
                     )
                 )
                 status = "resolved"
+
+                # Citation enforcement (PRD AC7.3) — opt in via AOP metadata.
+                # Fires only if the AOP set `metadata.require_citations: true`
+                # AND the run actually retrieved knowledge during execution.
+                # Otherwise honest "I don't know" answers and tool-only
+                # responses (e.g. summaries) wouldn't be penalized.
+                require_citations = bool(aop.metadata.get("require_citations"))
+                used_knowledge = any(
+                    s.tool_name == "lookup_knowledge" and s.status == "succeeded"
+                    for s in steps
+                )
+                if require_citations and used_knowledge and resp.text:
+                    from agents.citation_check import enforce_citations
+
+                    violation = enforce_citations(resp.text)
+                    if violation is not None:
+                        steps.append(
+                            AOPStepResult(
+                                step_index=len(steps),
+                                tool_name="(citation_check)",
+                                input={"final_text": resp.text},
+                                output={"uncited_segments": violation.segments},
+                                status="halted_by_guardrail",
+                                error=violation.message,
+                            )
+                        )
+                        status = "escalated_human"
                 break
 
             messages.append(

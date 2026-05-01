@@ -51,6 +51,7 @@ from tools.builtin.entities import (
     LIST_ACCOUNT_CASES,
     LIST_CONTACT_CASES,
 )
+from tools.builtin.knowledge import LOOKUP_KNOWLEDGE
 from tools.builtin.refund import PROPOSE_REFUND
 from tools.builtin.sf_cases import ADD_CASE_COMMENT, LOOKUP_CASE, UPDATE_CASE_STATUS
 from tools.builtin.sf_contacts import LOOKUP_CONTACT, VERIFY_CUSTOMER_IDENTITY
@@ -111,6 +112,8 @@ _ALL_TOOLS = [
     SUMMARIZE_CASE,
     SEARCH_SIMILAR_CASES,
     DETECT_DUPLICATE_CASES,
+    # Knowledge / RAG
+    LOOKUP_KNOWLEDGE,
 ]
 
 

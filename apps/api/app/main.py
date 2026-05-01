@@ -6,7 +6,7 @@ from temporalio.client import Client as TemporalClient
 
 from app.config import get_settings
 from app.logging import configure_logging, get_logger
-from app.routes import aops, cases, health, inbox, salesforce
+from app.routes import aops, cases, health, inbox, knowledge, salesforce
 
 log = get_logger(__name__)
 
@@ -50,3 +50,4 @@ app.include_router(salesforce.router, prefix="/v1/integrations/salesforce", tags
 app.include_router(aops.router, tags=["aops"])
 app.include_router(cases.router, tags=["cases"])
 app.include_router(inbox.router, tags=["inbox"])
+app.include_router(knowledge.router, tags=["knowledge"])

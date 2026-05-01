@@ -3,6 +3,8 @@ name: case_manager
 description: General-purpose case management agent. Handles any case end-to-end using the full tool catalog when no specialized AOP applies.
 persona_id: support_brand_voice_v1
 steps: []
+metadata:
+  require_citations: true
 guardrails:
   - kind: max_cost_usd
     expr: "1.00"
@@ -40,6 +42,7 @@ If the case description references an email or claimed identity, also call `veri
 - Call `summarize_case` if the case has > 5 timeline entries — orient yourself before acting.
 
 ### 3. Search prior knowledge
+- `lookup_knowledge` — search the policy / KB for any factual claim you'll make. **Every factual sentence in your final reply MUST end with `[cite:<chunk_id>]`** referencing a chunk this tool returned. The runtime will halt the run and route to inbox if you make uncited claims.
 - `search_similar_cases` — has this been resolved before?
 - `detect_duplicate_cases` — is this a fresh report of an existing issue? If yes, propose linking.
 

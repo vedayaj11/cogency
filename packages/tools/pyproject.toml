@@ -10,6 +10,7 @@ dependencies = [
     "cogency-db",
     "cogency-schemas",
     "cogency-salesforce",
+    "cogency-rag",
 ]
 
 [build-system]
