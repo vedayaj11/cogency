@@ -56,27 +56,37 @@ async def execute_aop_run(payload: RunAOPInput) -> RunAOPResult:
             raise RuntimeError(f"aop_version {payload.aop_version_id} not found")
         aop = AOP.model_validate(version.compiled_plan)
 
-        case = (
-            await session.execute(
-                select(SfCase).where(
-                    SfCase.org_id == payload.tenant_id, SfCase.id == payload.case_id
+        if payload.case_context_override is not None:
+            # Eval mode: skip the sf.case lookup and feed the synthetic case
+            # context straight to the executor. Read tools that need a real
+            # `sf.case` row (lookup_case, list_case_comments, etc.) will
+            # return found=False / empty lists, which is fine — the agent
+            # should reason from the supplied context.
+            case_context = dict(payload.case_context_override)
+            case_context.setdefault("case_id", payload.case_id)
+        else:
+            case = (
+                await session.execute(
+                    select(SfCase).where(
+                        SfCase.org_id == payload.tenant_id, SfCase.id == payload.case_id
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        if case is None:
-            raise RuntimeError(f"case {payload.case_id} not in mirror; backfill first")
-
-        case_context = {
-            "case_id": case.id,
-            "case_number": case.case_number,
-            "subject": case.subject,
-            "description": case.description,
-            "status": case.status,
-            "priority": case.priority,
-            "contact_id": case.contact_id,
-            "account_id": case.account_id,
-            "custom_fields": case.custom_fields or {},
-        }
+            ).scalar_one_or_none()
+            if case is None:
+                raise RuntimeError(
+                    f"case {payload.case_id} not in mirror; backfill first"
+                )
+            case_context = {
+                "case_id": case.id,
+                "case_number": case.case_number,
+                "subject": case.subject,
+                "description": case.description,
+                "status": case.status,
+                "priority": case.priority,
+                "contact_id": case.contact_id,
+                "account_id": case.account_id,
+                "custom_fields": case.custom_fields or {},
+            }
 
         run_repo = AOPRunRepository(session)
         if payload.run_id is not None:
@@ -126,7 +136,9 @@ async def execute_aop_run(payload: RunAOPInput) -> RunAOPResult:
             token_out=outcome.token_out,
             steps=[s.model_dump() for s in outcome.steps],
         )
-        if outcome.status == "escalated_human":
+        if outcome.status == "escalated_human" and not payload.is_eval:
+            # Eval runs intentionally skip inbox creation — they shouldn't
+            # pollute the human inbox with synthetic test escalations.
             inbox = InboxRepository(session)
             last = outcome.steps[-1] if outcome.steps else None
             # Pre-call gates record `awaiting_approval=True` in the step's

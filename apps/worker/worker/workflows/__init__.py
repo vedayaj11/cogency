@@ -1,5 +1,6 @@
 from worker.workflows.aop_run import RunAOPWorkflow
 from worker.workflows.cdc import CDCConsumerWorkflow
+from worker.workflows.eval import RunEvalWorkflow
 from worker.workflows.health import HealthWorkflow
 from worker.workflows.sf_backfill import (
     BackfillAllWorkflow,
@@ -14,4 +15,5 @@ __all__ = [
     "BackfillAllWorkflow",
     "RunAOPWorkflow",
     "CDCConsumerWorkflow",
+    "RunEvalWorkflow",
 ]

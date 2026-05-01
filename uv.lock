@@ -442,6 +442,7 @@ dependencies = [
     { name = "cogency-agents" },
     { name = "cogency-aop" },
     { name = "cogency-db" },
+    { name = "cogency-evals" },
     { name = "cogency-guardrails" },
     { name = "cogency-rag" },
     { name = "cogency-salesforce" },
@@ -468,6 +469,7 @@ requires-dist = [
     { name = "cogency-agents", editable = "packages/agents" },
     { name = "cogency-aop", editable = "packages/aop" },
     { name = "cogency-db", editable = "packages/db" },
+    { name = "cogency-evals", editable = "packages/evals" },
     { name = "cogency-guardrails", editable = "packages/guardrails" },
     { name = "cogency-rag", editable = "packages/rag" },
     { name = "cogency-salesforce", editable = "packages/salesforce" },
@@ -508,6 +510,7 @@ name = "cogency-evals"
 version = "0.0.1"
 source = { editable = "packages/evals" }
 dependencies = [
+    { name = "anthropic" },
     { name = "cogency-schemas" },
     { name = "openai" },
     { name = "pydantic" },
@@ -515,6 +518,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = ">=0.40" },
     { name = "cogency-schemas", editable = "packages/schemas" },
     { name = "openai", specifier = ">=1.50" },
     { name = "pydantic", specifier = ">=2.9" },

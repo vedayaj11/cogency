@@ -9,6 +9,7 @@ from worker.activities import (
     backfill_sobject,
     consume_case_cdc,
     execute_aop_run,
+    execute_eval_run,
     ping,
 )
 from worker.config import get_settings
@@ -19,6 +20,7 @@ from worker.workflows import (
     CDCConsumerWorkflow,
     HealthWorkflow,
     RunAOPWorkflow,
+    RunEvalWorkflow,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -40,12 +42,14 @@ async def run() -> None:
             BackfillAllWorkflow,
             RunAOPWorkflow,
             CDCConsumerWorkflow,
+            RunEvalWorkflow,
         ],
         activities=[
             ping,
             backfill_cases,
             backfill_sobject,
             execute_aop_run,
+            execute_eval_run,
             consume_case_cdc,
         ],
     )

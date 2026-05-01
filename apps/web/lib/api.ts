@@ -161,4 +161,50 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  listGoldenDatasets: () =>
+    fetchJson<{ items: GoldenDatasetItem[] }>(`/v1/golden_datasets`),
+  listEvalRuns: () => fetchJson<{ items: EvalRunListItem[] }>(`/v1/eval_runs`),
+  getEvalRun: (id: string) => fetchJson<EvalRunDetail>(`/v1/eval_runs/${id}`),
+};
+
+export type GoldenDatasetItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  aop_name: string | null;
+  cases_count: number;
+  created_at: string;
+};
+
+export type EvalRunListItem = {
+  id: string;
+  aop_version_id: string;
+  aop_name: string | null;
+  aop_version_number: number | null;
+  dataset_id: string;
+  dataset_name: string | null;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  cases_total: number;
+  cases_passed: number;
+  pass_rate: number | null;
+  aggregate_scores: Record<string, number> | null;
+  cost_usd: number | null;
+};
+
+export type EvalResultItem = {
+  id: string;
+  golden_case_id: string;
+  aop_run_id: string | null;
+  passed: boolean;
+  scores: Record<string, number>;
+  aggregate: number;
+  judge_reasoning: string | null;
+  execution_status: string | null;
+};
+
+export type EvalRunDetail = EvalRunListItem & {
+  judge_model: string | null;
+  results: EvalResultItem[];
 };

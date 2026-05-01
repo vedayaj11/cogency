@@ -6,6 +6,7 @@ from db.models.aop import (
     AOPVersion,
     AuditEvent,
 )
+from db.models.eval import EvalResult, EvalRun, GoldenCase, GoldenDataset
 from db.models.knowledge import KnowledgeChunk, KnowledgeSource
 from db.models.sf import (
     SfAccount,
@@ -39,4 +40,8 @@ __all__ = [
     "AuditEvent",
     "KnowledgeSource",
     "KnowledgeChunk",
+    "GoldenDataset",
+    "GoldenCase",
+    "EvalRun",
+    "EvalResult",
 ]

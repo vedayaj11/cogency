@@ -22,6 +22,7 @@ dependencies = [
     "cogency-guardrails",
     "cogency-evals",
     "cogency-rag",
+    "anthropic>=0.40",
 ]
 
 [build-system]

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Inbox, ListOrdered, ScrollText, Workflow } from "lucide-react";
+import { ClipboardCheck, Inbox, ListOrdered, ScrollText, Workflow } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const NAV: { href: string; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -10,6 +10,7 @@ const NAV: { href: string; label: string; icon: React.ComponentType<{ className?
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/aops", label: "AOPs", icon: Workflow },
   { href: "/runs", label: "Runs", icon: ScrollText },
+  { href: "/evals", label: "Evals", icon: ClipboardCheck },
 ];
 
 export function Sidebar() {

@@ -33,11 +33,15 @@ class WorkerSettings(BaseSettings):
 
     cogency_dev_tenant_id: UUID = UUID("00000000-0000-0000-0000-000000000001")
 
-    # LLM
+    # LLM — OpenAI is the primary executor; Anthropic is the cross-family
+    # judge (PRD §6.6). Either may be empty if not configured.
     openai_api_key: str = ""
     openai_default_model: str = "gpt-4o"
     openai_triage_model: str = "gpt-4o-mini"
     openai_judge_model: str = "gpt-4o"
+    openai_embedding_model: str = "text-embedding-3-large"
+    anthropic_api_key: str = ""
+    anthropic_judge_model: str = "claude-sonnet-4-5"
 
     log_level: str = "INFO"
 

@@ -2,6 +2,8 @@ from schemas.aop import (
     AOPCreateRequest,
     AOPCreateResponse,
     AOPRunSummary,
+    EvalRunInput,
+    EvalRunResult,
     RunAOPInput,
     RunAOPResult,
 )
@@ -41,4 +43,6 @@ __all__ = [
     "AOPRunSummary",
     "RunAOPInput",
     "RunAOPResult",
+    "EvalRunInput",
+    "EvalRunResult",
 ]

@@ -23,7 +23,8 @@ from sqlalchemy import desc, select
 from aop import compile_aop, parse_aop_source
 from aop.compiler import CompileError
 from db import AOPRepository, AOPRunRepository
-from db.models.aop import AOP, AOPRun, AOPVersion
+from db.models.aop import AOP, AOPRun, AOPVersion, AuditEvent
+from db.models.eval import EvalRun
 from schemas import (
     AOPCreateRequest,
     AOPCreateResponse,
@@ -122,14 +123,88 @@ async def upsert_aop(
         name=aop.name,
         description=aop.description,
     )
+
+    # ---- Deploy gate (PRD AC6.5) ----
+    # When deploy=true, look up the most recent COMPLETED eval_run on any
+    # version of this AOP. If pass_rate < threshold:
+    #   - force_deploy=false → block, return deploy_blocked=true
+    #   - force_deploy=true  → allow + write audit_events row
+    # Untested AOPs (no eval ever) are allowed through; strict mode is M9.
+    deploy_blocked = False
+    deploy_block_reason: str | None = None
+    deploy_forced = False
+    last_pass_rate: float | None = None
+
+    if payload.deploy and not compile_errors:
+        last_eval = (
+            await session.execute(
+                select(EvalRun)
+                .join(AOPVersion, AOPVersion.id == EvalRun.aop_version_id)
+                .where(
+                    AOPVersion.aop_id == aop_row.id,
+                    EvalRun.status == "completed",
+                )
+                .order_by(desc(EvalRun.ended_at))
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if last_eval is not None:
+            last_pass_rate = last_eval.pass_rate
+            if (
+                last_pass_rate is not None
+                and last_pass_rate < payload.deploy_pass_threshold
+            ):
+                if payload.force_deploy:
+                    deploy_forced = True
+                    deploy_block_reason = (
+                        f"force-deployed despite pass_rate "
+                        f"{last_pass_rate:.0%} < required "
+                        f"{payload.deploy_pass_threshold:.0%}"
+                    )
+                else:
+                    deploy_blocked = True
+                    deploy_block_reason = (
+                        f"last eval pass_rate {last_pass_rate:.0%} is below "
+                        f"the required {payload.deploy_pass_threshold:.0%}; "
+                        "pass force_deploy=true to override (the override is "
+                        "audit-logged)"
+                    )
+
+    initial_status = (
+        "draft"
+        if compile_errors
+        else (
+            "deploy_blocked"
+            if deploy_blocked
+            else ("deployed" if payload.deploy else "ready")
+        )
+    )
     version = await repo.add_version(
         aop_id=aop_row.id,
         source_md=payload.source_md,
         compiled_plan=aop.model_dump(),
-        status="draft" if compile_errors else ("deployed" if payload.deploy else "ready"),
+        status=initial_status,
     )
-    if payload.deploy and not compile_errors:
+
+    if payload.deploy and not compile_errors and not deploy_blocked:
         await repo.set_current_version(aop_row.id, version.id)
+        if deploy_forced:
+            session.add(
+                AuditEvent(
+                    tenant_id=settings.cogency_dev_tenant_id,
+                    actor_type="human",
+                    actor_id="dev_user",  # TODO(auth): authenticated user
+                    action="aop.force_deploy",
+                    target_type="aop_version",
+                    target_id=str(version.id),
+                    before={
+                        "last_pass_rate": last_pass_rate,
+                        "threshold": payload.deploy_pass_threshold,
+                    },
+                    after={"forced": True, "reason": deploy_block_reason},
+                )
+            )
+            await session.commit()
 
     return AOPCreateResponse(
         aop_id=aop_row.id,
@@ -137,6 +212,9 @@ async def upsert_aop(
         version_number=version.version_number,
         status=version.status,
         compile_errors=compile_errors,
+        deploy_blocked=deploy_blocked,
+        deploy_block_reason=deploy_block_reason,
+        last_eval_pass_rate=last_pass_rate,
     )
 
 
