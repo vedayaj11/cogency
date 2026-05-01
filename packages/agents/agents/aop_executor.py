@@ -94,6 +94,89 @@ class AOPExecutor:
         started_at = datetime.now(UTC)
         run_id = str(uuid4())
 
+        # ---- M9a guardrails: PII redaction + prompt-injection scan + spotlight ----
+        # Opt-in via AOP metadata so AOPs that need raw PII (e.g. legitimate
+        # field updates that store the customer's email verbatim) can leave
+        # redaction off. The activity that wraps the executor restores
+        # redacted placeholders to their originals via the `restoration_map`
+        # at write time.
+        pii_redaction_on = bool(aop.metadata.get("pii_redaction"))
+        injection_check_on = bool(aop.metadata.get("injection_check"))
+        injection_action = str(aop.metadata.get("injection_action", "block"))
+        injection_threshold = str(aop.metadata.get("injection_threshold", "high"))
+        spotlight_on = bool(aop.metadata.get("spotlight_untrusted", True))
+
+        # 1. Scan inbound case_context for prompt injection BEFORE any LLM call.
+        if injection_check_on:
+            from guardrails import scan_dict, severity_at_least
+
+            injection = scan_dict(case_context)
+            if injection.detected and severity_at_least(
+                injection.max_severity, injection_threshold  # type: ignore[arg-type]
+            ):
+                if injection_action == "block":
+                    return AOPRunOutcome(
+                        run_id=run_id,
+                        aop_version_id=aop_version_id,
+                        case_id=case_id,
+                        status="failed",
+                        started_at=started_at,
+                        ended_at=datetime.now(UTC),
+                        steps=[
+                            AOPStepResult(
+                                step_index=0,
+                                tool_name="(injection_scan)",
+                                input={"scope": "case_context"},
+                                output={
+                                    "blocked": True,
+                                    "summary": injection.summary,
+                                    "hits": [
+                                        {
+                                            "name": h.pattern_name,
+                                            "category": h.category,
+                                            "severity": h.severity,
+                                            "match": h.matched_text,
+                                        }
+                                        for h in injection.hits[:10]
+                                    ],
+                                },
+                                status="halted_by_guardrail",
+                                error=(
+                                    f"prompt-injection blocked at "
+                                    f"severity={injection.max_severity}: "
+                                    f"{injection.summary}"
+                                ),
+                            )
+                        ],
+                        cost_usd=0.0,
+                        token_in=0,
+                        token_out=0,
+                        trace_id=trace_id,
+                    )
+                # action == "warn": continue but record the hit as a step.
+
+        # 2. Optionally redact PII in the case_context dict before it ever
+        # hits an LLM message. Skip structural keys (case_id / status) since
+        # those aren't PII and the agent needs them as bare values.
+        restoration_map: dict[str, str] = {}
+        if pii_redaction_on:
+            from guardrails import get_redactor
+
+            redactor = get_redactor()
+            redacted_context, restoration_map = redactor.redact_dict(
+                case_context,
+                skip_keys={
+                    "case_id",
+                    "case_number",
+                    "status",
+                    "priority",
+                    "origin",
+                    "type",
+                    "is_public",
+                },
+            )
+            case_context = redacted_context
+
         scope_set = set(granted_scopes)
         allowed_tool_names = [
             name
@@ -102,13 +185,35 @@ class AOPExecutor:
         ]
         tool_specs = self.registry.to_openai_specs(only=allowed_tool_names)
 
-        system_prompt = self._build_system_prompt(aop, granted_scopes)
+        system_prompt = self._build_system_prompt(
+            aop, granted_scopes, spotlight_on=spotlight_on
+        )
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(case_context, default=str)},
         ]
 
         steps: list[AOPStepResult] = []
+        # If injection_check is on with action=warn, surface a step recording
+        # the early scan so the trace shows we noticed.
+        if injection_check_on and injection_action == "warn":
+            from guardrails import scan_dict as _sd
+
+            early = _sd(case_context)
+            if early.detected:
+                steps.append(
+                    AOPStepResult(
+                        step_index=0,
+                        tool_name="(injection_scan)",
+                        input={"scope": "case_context"},
+                        output={
+                            "blocked": False,
+                            "summary": early.summary,
+                            "hit_count": len(early.hits),
+                        },
+                        status="succeeded",
+                    )
+                )
         usage = TokenUsage()
         state = ExecutorRuntimeState(variables={"case_id": case_id})
         status: str = "failed"
@@ -253,7 +358,27 @@ class AOPExecutor:
                             f"tool '{call.name}' missing scopes "
                             f"{sorted(set(tool.required_scopes) - scope_set)}"
                         )
-                    parsed = tool.input_schema.model_validate(call.arguments)
+                    # PII tokenize-and-restore (PRD AC7.1): the LLM sees
+                    # `<EMAIL_ADDRESS_0>` in its context, but tools must
+                    # receive the originals to verify identity, send
+                    # legitimate emails, etc. Auto-restore the call's
+                    # arguments at the dispatch boundary using the map we
+                    # built when redacting the case_context.
+                    args = call.arguments
+                    if pii_redaction_on and restoration_map:
+                        from guardrails import restore as _restore_pii
+
+                        def _walk_args(v: Any) -> Any:
+                            if isinstance(v, str):
+                                return _restore_pii(v, restoration_map)
+                            if isinstance(v, dict):
+                                return {k: _walk_args(x) for k, x in v.items()}
+                            if isinstance(v, list):
+                                return [_walk_args(x) for x in v]
+                            return v
+
+                        args = _walk_args(args)
+                    parsed = tool.input_schema.model_validate(args)
                     result = await tool.func(tool_context, parsed)
                     return (call, "succeeded", result.model_dump(), None,
                             int((time.perf_counter() - t0) * 1000))
@@ -279,11 +404,28 @@ class AOPExecutor:
                     )
                 )
                 state.update_from_tool_output(call.name, output_dict)
+
+                # Spotlight untrusted tool outputs before they enter the
+                # LLM context. lookup_knowledge returns chunk text from
+                # external documents — wrap so the model treats those
+                # chunks as data, not instructions. Tools can opt out by
+                # listing their name in the AOP's `metadata.trusted_tools`.
+                content_for_llm: Any = output_dict
+                trusted = set(aop.metadata.get("trusted_tools", []) or [])
+                if (
+                    spotlight_on
+                    and call.name == "lookup_knowledge"
+                    and call.name not in trusted
+                ):
+                    from guardrails import wrap_field
+
+                    content_for_llm = wrap_field(output_dict)
+
                 messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": call.id,
-                        "content": json.dumps(output_dict, default=str),
+                        "content": json.dumps(content_for_llm, default=str),
                     }
                 )
 
@@ -362,7 +504,9 @@ class AOPExecutor:
         return None
 
     @staticmethod
-    def _build_system_prompt(aop: AOP, granted_scopes: list[str]) -> str:
+    def _build_system_prompt(
+        aop: AOP, granted_scopes: list[str], *, spotlight_on: bool = True
+    ) -> str:
         scopes = ", ".join(granted_scopes) or "(none)"
         steps_outline = "\n".join(
             f"  {i+1}. {s.name} (tool={s.tool})" for i, s in enumerate(aop.steps)
@@ -371,7 +515,13 @@ class AOPExecutor:
             f"  - {g.kind}: {g.expr}" + (f" ({g.message})" if g.message else "")
             for g in aop.guardrails
         ) or "  (none)"
+        spotlight_block = ""
+        if spotlight_on:
+            from guardrails import SYSTEM_PROMPT_PREFIX
+
+            spotlight_block = SYSTEM_PROMPT_PREFIX + "\n\n"
         return (
+            f"{spotlight_block}"
             f"You are executing the Cogency AOP '{aop.name}'.\n"
             f"{aop.description}\n\n"
             f"Granted scopes: {scopes}\n\n"

@@ -5,6 +5,11 @@ persona_id: support_brand_voice_v1
 steps: []
 metadata:
   require_citations: true
+  pii_redaction: true
+  injection_check: true
+  injection_action: block        # block | warn | off
+  injection_threshold: high      # low | medium | high | critical
+  spotlight_untrusted: true
 guardrails:
   - kind: max_cost_usd
     expr: "1.00"
